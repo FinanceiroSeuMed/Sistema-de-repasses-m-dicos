@@ -131,3 +131,13 @@ LOGOUT_REDIRECT_URL = '/'
 # Provisório: lê das amostras locais. No futuro, as regras serão gerenciadas no
 # próprio sistema (banco de dados), atendendo à "fonte única da verdade".
 REGRAS_REPASSE_PATH = BASE_DIR / 'amostras' / 'regras_repasse.xlsx'
+
+# Modelos de importação da OMIE (sem dados sensíveis — versionados)
+OMIE_PAGAR_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
+OMIE_RECEBER_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
+
+# Categoria do contas a RECEBER (a confirmar com a diretoria — provisória)
+OMIE_CATEGORIA_RECEBER = 'Recebimento de Procedimentos'
+
+# Pasta onde os arquivos gerados ficam disponíveis para download
+SAIDAS_DIR = BASE_DIR / 'saidas'

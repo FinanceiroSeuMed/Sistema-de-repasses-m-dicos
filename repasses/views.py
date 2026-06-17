@@ -1,8 +1,15 @@
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+
+from django.conf import settings
+from django.http import FileResponse, Http404
 from django.shortcuts import render
 
 from .forms import ImportarMedPlusForm
 from .models import Medico
-from .services import medplus, regras
+from .services import medplus, omie, regras
 
 
 def home(request):
@@ -14,11 +21,32 @@ def home(request):
     return render(request, 'repasses/home.html', contexto)
 
 
+def _resumir_pendencias(itens):
+    """Agrupa pendências repetidas em 'Nx mensagem'."""
+    contagem = Counter(itens)
+    return [f'{q}× {msg}' if q > 1 else msg for msg, q in contagem.items()]
+
+
+def _salvar_saidas(saidas):
+    """Grava os arquivos gerados numa subpasta de SAIDAS_DIR e devolve (pasta, lista)."""
+    pasta = f'{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}'
+    destino = Path(settings.SAIDAS_DIR) / pasta
+    destino.mkdir(parents=True, exist_ok=True)
+    downloads = []
+    for s in saidas:
+        (destino / s.nome_arquivo).write_bytes(s.conteudo)
+        downloads.append({'arquivo': s.nome_arquivo, 'linhas': s.linhas})
+    return pasta, downloads
+
+
 def importar(request):
-    """Importa o relatório da MedPlus, classifica e exibe os procedimentos."""
+    """Importa o relatório da MedPlus, classifica, calcula e gera as saídas OMIE."""
     resultado = None
     erro = None
     aviso_regras = None
+    downloads = []
+    pasta_saida = ''
+    pendencias = []
 
     if request.method == 'POST':
         form = ImportarMedPlusForm(request.POST, request.FILES)
@@ -32,11 +60,16 @@ def importar(request):
                 livro = regras.carregar_livro_padrao()
                 if livro is None:
                     aviso_regras = (
-                        'A planilha de regras não foi encontrada — os honorários '
-                        'ficaram "a definir". Confira o caminho em REGRAS_REPASSE_PATH.'
+                        'A planilha de regras não foi encontrada — os honorários ficaram '
+                        '"a definir". Confira o caminho em REGRAS_REPASSE_PATH.'
                     )
                 else:
                     regras.processar(resultado, livro)
+                    pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
+                    receber = omie.gerar_contas_receber(
+                        resultado, settings.OMIE_RECEBER_TEMPLATE, settings.OMIE_CATEGORIA_RECEBER)
+                    pasta_saida, downloads = _salvar_saidas([pagar, receber])
+                    pendencias = _resumir_pendencias(pagar.pendencias + receber.pendencias)
     else:
         form = ImportarMedPlusForm()
 
@@ -45,6 +78,18 @@ def importar(request):
         'resultado': resultado,
         'erro': erro,
         'aviso_regras': aviso_regras,
+        'downloads': downloads,
+        'pasta_saida': pasta_saida,
+        'pendencias': pendencias,
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
     return render(request, 'repasses/importar.html', contexto)
+
+
+def baixar_saida(request, pasta, arquivo):
+    """Serve um arquivo gerado da pasta de saídas (com proteção contra path traversal)."""
+    base = Path(settings.SAIDAS_DIR).resolve()
+    caminho = (base / pasta / arquivo).resolve()
+    if base not in caminho.parents or not caminho.is_file():
+        raise Http404('Arquivo não encontrado.')
+    return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=arquivo)

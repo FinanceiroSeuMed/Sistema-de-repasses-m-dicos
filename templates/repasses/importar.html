@@ -41,6 +41,27 @@
     </p>
 </section>
 
+{% if downloads %}
+<section class="saidas">
+    <h2>Arquivos da OMIE gerados</h2>
+    <p class="nota">Prontos para importar na OMIE. Ficam salvos para download nesta sessão.</p>
+    <div class="saidas-botoes">
+        {% for d in downloads %}
+        <a class="botao botao-primario botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">⬇ {{ d.arquivo }} <small>({{ d.linhas }} linha{{ d.linhas|pluralize }})</small></a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if pendencias %}
+<section class="pendencias">
+    <h3>⚠️ Pendências — revise ou preencha antes de importar</h3>
+    <ul>
+        {% for p in pendencias %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+</section>
+{% endif %}
+
 {% for bloco in resultado.blocos %}
 <section class="bloco-medico">
     <div class="bloco-cabecalho">

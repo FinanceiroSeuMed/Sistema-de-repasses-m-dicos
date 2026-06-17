@@ -27,3 +27,6 @@ Thumbs.db
 
 # Amostras / modelos reais (dados sensíveis — não versionar)
 /amostras/
+
+# Arquivos gerados (saídas para download)
+/saidas/
