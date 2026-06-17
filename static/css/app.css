@@ -111,6 +111,8 @@ body {
     box-shadow: var(--sombra);
 }
 .card-modulo.pronto { border-color: #b6e3cd; }
+.card-link { text-decoration: none; color: inherit; display: block; transition: transform .08s ease, box-shadow .08s ease; }
+.card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,24,40,0.12); }
 .card-modulo h3 { margin: 8px 0; font-size: 17px; }
 .card-modulo p { margin: 0; color: var(--texto-suave); font-size: 14px; }
 .card-modulo-topo { display: flex; }
@@ -137,3 +139,63 @@ body {
     color: var(--texto-suave);
     font-size: 13px;
 }
+
+/* ===== Importador / páginas internas ===== */
+.pagina-cabecalho { margin-bottom: 20px; }
+.pagina-cabecalho h1 { margin: 0 0 6px; font-size: 24px; }
+.subtitulo-escuro { margin: 0; color: var(--texto-suave); max-width: 720px; }
+
+.cartao-upload {
+    background: var(--branco);
+    border: 1px solid var(--cinza-borda);
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: var(--sombra);
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.campo-arquivo { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 280px; }
+.campo-arquivo label { font-weight: 600; font-size: 14px; }
+.campo-arquivo input[type=file] {
+    border: 1px dashed var(--cinza-borda);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--cinza-fundo);
+}
+.ajuda { color: var(--texto-suave); font-size: 12px; }
+.erro-campo { color: #c0392b; font-size: 13px; }
+.cartao-upload .botao-primario { background: var(--azul); color: #fff; border: none; cursor: pointer; }
+.cartao-upload .botao-primario:hover { background: var(--azul-escuro); }
+
+.alerta { border-radius: 10px; padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+.alerta-erro { background: #fdecea; color: #b42318; border: 1px solid #f5c6c0; }
+.alerta-aviso { background: #fff7e6; color: #946200; border: 1px solid #ffe1a8; }
+
+.resumo-importacao { margin: 24px 0 8px; }
+.resumo-linha { display: flex; gap: 32px; flex-wrap: wrap; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; padding: 16px 24px; box-shadow: var(--sombra); }
+.resumo-rotulo { display: block; font-size: 12px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .4px; }
+.resumo-valor { display: block; font-size: 22px; font-weight: 700; color: var(--azul); }
+.nota { font-size: 13px; color: var(--texto-suave); margin: 12px 2px 0; }
+
+.bloco-medico { margin-top: 28px; }
+.bloco-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.bloco-cabecalho h2 { margin: 0; font-size: 18px; }
+.bloco-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #eef2f7; color: var(--texto-suave); white-space: nowrap; }
+.badge-cirurgia { background: #e7f0fb; color: #0b5fa5; }
+.badge-exame { background: #e3f6ec; color: #1f9d6b; }
+.badge-preceptoria { background: #efeafc; color: #6b46c1; }
+.badge-taxa { background: #fdebd2; color: #b9700f; }
+.badge-indefinida { background: #fde8e8; color: #c0392b; }
+
+.tabela { width: 100%; border-collapse: collapse; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; overflow: hidden; box-shadow: var(--sombra); }
+.tabela th, .tabela td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--cinza-borda); }
+.tabela thead th { background: #f7f9fc; color: var(--texto-suave); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .3px; }
+.tabela tbody tr:hover { background: #f9fbfd; }
+.tabela .num { text-align: right; white-space: nowrap; }
+.tabela tfoot td { background: #f7f9fc; }
+.linha-indefinida { background: #fff7f6; }
+.linha-indefinida:hover { background: #ffefee; }

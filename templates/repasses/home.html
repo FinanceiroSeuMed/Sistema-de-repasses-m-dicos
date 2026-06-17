@@ -11,8 +11,8 @@
         do médico — tudo a partir de uma única fonte da verdade.
     </p>
     <div class="hero-acoes">
-        <a class="botao botao-primario" href="/admin/repasses/medico/">Gerenciar médicos</a>
-        <a class="botao botao-secundario" href="/admin/">Painel administrativo</a>
+        <a class="botao botao-primario" href="{% url 'repasses:importar' %}">Importar relatório da MedPlus</a>
+        <a class="botao botao-secundario" href="/admin/repasses/medico/">Gerenciar médicos</a>
     </div>
 </section>
 
@@ -44,14 +44,14 @@
                com registro de criação e última atualização.</p>
         </div>
 
-        <div class="card-modulo">
+        <a href="{% url 'repasses:importar' %}" class="card-modulo pronto card-link">
             <div class="card-modulo-topo">
-                <span class="tag">Próximo</span>
+                <span class="tag tag-pronto">Disponível</span>
             </div>
             <h3>Importar agenda (MedPlus)</h3>
             <p>Leitura do relatório de procedimentos realizados exportado do MedPlus,
                base para o cálculo dos honorários.</p>
-        </div>
+        </a>
 
         <div class="card-modulo">
             <div class="card-modulo-topo">

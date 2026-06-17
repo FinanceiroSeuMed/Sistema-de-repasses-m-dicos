@@ -5,3 +5,4 @@ Django>=6.0,<6.1        # framework web (admin, ORM, auth, templates)
 pandas>=3.0             # leitura/transformação de relatórios (MedPlus, OMIE)
 openpyxl>=3.1           # leitura e escrita de planilhas .xlsx
 reportlab>=4.5          # geração de documentos PDF (repasse médico)
+xlrd>=2.0              # leitura de planilhas .xls antigas (export da MedPlus)

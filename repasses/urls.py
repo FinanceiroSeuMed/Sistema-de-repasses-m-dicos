@@ -6,4 +6,5 @@ app_name = 'repasses'
 
 urlpatterns = [
     path('', views.home, name='home'),
+    path('importar/', views.importar, name='importar'),
 ]

@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Importar relatório da MedPlus{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Importar relatório da MedPlus</h1>
+    <p class="subtitulo-escuro">
+        Envie o relatório <strong>"Procedimentos pela Agenda"</strong> exportado da MedPlus
+        (.xls). O sistema lê os procedimentos de cada médico e propõe a classificação
+        nas 4 classes de repasse.
+    </p>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="cartao-upload">
+    {% csrf_token %}
+    <div class="campo-arquivo">
+        <label for="{{ form.arquivo.id_for_label }}">{{ form.arquivo.label }}</label>
+        {{ form.arquivo }}
+        <small class="ajuda">{{ form.arquivo.help_text }}</small>
+        {% if form.arquivo.errors %}<div class="erro-campo">{{ form.arquivo.errors.0 }}</div>{% endif %}
+    </div>
+    <button type="submit" class="botao botao-primario">Ler e classificar</button>
+</form>
+
+{% if erro %}
+<div class="alerta alerta-erro">{{ erro }}</div>
+{% endif %}
+
+{% if resultado %}
+<section class="resumo-importacao">
+    <div class="resumo-linha">
+        <div><span class="resumo-rotulo">Unidade</span><span class="resumo-valor">{{ resultado.unidade }}</span></div>
+        <div><span class="resumo-rotulo">Médicos</span><span class="resumo-valor">{{ resultado.blocos|length }}</span></div>
+        <div><span class="resumo-rotulo">Procedimentos</span><span class="resumo-valor">{{ resultado.total_registros }}</span></div>
+    </div>
+    <p class="nota">
+        ℹ️ O valor de honorário exibido é o que veio da MedPlus, apenas como <em>referência</em>.
+        O <strong>valor final do repasse será recalculado pelas regras (anexo 5)</strong>.
+        A classificação abaixo é um <strong>palpite inicial</strong> e poderá ser corrigida.
+    </p>
+</section>
+
+{% for bloco in resultado.blocos %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho">
+        <h2>{{ bloco.profissional }}</h2>
+        <div class="bloco-badges">
+            {% for classe, qtd in bloco.resumo_classes %}
+            <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ qtd }}</span>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if bloco.qtd_a_classificar %}
+    <div class="alerta alerta-aviso">
+        ⚠️ {{ bloco.qtd_a_classificar }} procedimento(s) sem classe definida — precisam de conferência.
+    </div>
+    {% endif %}
+
+    <table class="tabela">
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Procedimento</th>
+                <th>Convênio</th>
+                <th class="num">Qtd.</th>
+                <th class="num">Honor. MedPlus (ref.)</th>
+                <th>Classe (palpite)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in bloco.procedimentos %}
+            <tr{% if p.classe == classe_indefinida %} class="linha-indefinida"{% endif %}>
+                <td>{{ p.data_texto }}</td>
+                <td>{{ p.procedimento }}</td>
+                <td>{{ p.convenio }}</td>
+                <td class="num">{{ p.quantidade }}</td>
+                <td class="num">{{ p.honorario_medplus|moeda }}</td>
+                <td><span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="4" class="num"><strong>Total ({{ bloco.total_registros }} registros)</strong></td>
+                <td class="num"><strong>{{ bloco.total_honorario_medplus|moeda }}</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}
