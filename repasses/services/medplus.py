@@ -73,6 +73,10 @@ class Procedimento:
     valor: float | None              # valor bruto (só existe no relatório completo)
     honorario_medplus: float | None  # honorário que veio da MedPlus (referência)
     classe: str = CLASSE_INDEFINIDA
+    # Preenchidos pelo motor de cálculo (regras.py)
+    honorario: float | None = None   # honorário recalculado pelas regras
+    status_calculo: str = ''         # calculado / nao_recebe / a_definir
+    motivo_calculo: str = ''
 
 
 @dataclass
@@ -99,6 +103,19 @@ class BlocoMedico:
     @property
     def qtd_a_classificar(self) -> int:
         return sum(1 for p in self.procedimentos if p.classe == CLASSE_INDEFINIDA)
+
+    @property
+    def total_honorario(self) -> float:
+        return round(sum((p.honorario or 0) for p in self.procedimentos
+                         if p.status_calculo == 'calculado'), 2)
+
+    @property
+    def qtd_a_definir(self) -> int:
+        return sum(1 for p in self.procedimentos if p.status_calculo == 'a_definir')
+
+    # Preenchidos pelo orquestrador (regras.processar)
+    lembrete: str = ''
+    razao_social: str = ''
 
 
 @dataclass

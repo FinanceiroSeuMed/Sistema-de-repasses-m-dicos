@@ -126,3 +126,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Redirecionamentos de login
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# Caminho da planilha de regras de repasse (anexo 5).
+# Provisório: lê das amostras locais. No futuro, as regras serão gerenciadas no
+# próprio sistema (banco de dados), atendendo à "fonte única da verdade".
+REGRAS_REPASSE_PATH = BASE_DIR / 'amostras' / 'regras_repasse.xlsx'

@@ -190,6 +190,12 @@ body {
 .badge-preceptoria { background: #efeafc; color: #6b46c1; }
 .badge-taxa { background: #fdebd2; color: #b9700f; }
 .badge-indefinida { background: #fde8e8; color: #c0392b; }
+.badge-ok { background: #e3f6ec; color: #1f9d6b; }
+.badge-zero { background: #eef2f7; color: #52606d; }
+.badge-pendente { background: #fde8e8; color: #c0392b; }
+
+.alerta-info { background: #eaf3fb; color: #0b5fa5; border: 1px solid #bcdcf5; }
+.razao { display: block; font-size: 12px; color: var(--texto-suave); margin-top: 2px; }
 
 .tabela { width: 100%; border-collapse: collapse; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; overflow: hidden; box-shadow: var(--sombra); }
 .tabela th, .tabela td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--cinza-borda); }

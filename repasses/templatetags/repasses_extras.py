@@ -17,6 +17,25 @@ def moeda(valor):
 
 
 @register.filter
+def slug_status(valor):
+    """Sufixo CSS para o status do cálculo."""
+    return {
+        'calculado': 'ok',
+        'nao_recebe': 'zero',
+        'a_definir': 'pendente',
+    }.get(valor, 'pendente')
+
+
+@register.filter
+def rotulo_status(valor):
+    return {
+        'calculado': 'Calculado',
+        'nao_recebe': 'Não recebe',
+        'a_definir': 'A definir',
+    }.get(valor, 'A definir')
+
+
+@register.filter
 def slug_classe(valor):
     """Converte o nome da classe num sufixo de CSS estável."""
     mapa = {

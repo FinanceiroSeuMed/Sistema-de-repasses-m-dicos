@@ -8,8 +8,8 @@
     <h1>Importar relatório da MedPlus</h1>
     <p class="subtitulo-escuro">
         Envie o relatório <strong>"Procedimentos pela Agenda"</strong> exportado da MedPlus
-        (.xls). O sistema lê os procedimentos de cada médico e propõe a classificação
-        nas 4 classes de repasse.
+        (.xls). O sistema lê os procedimentos de cada médico, classifica e <strong>recalcula
+        o honorário pelas regras de repasse</strong>.
     </p>
 </section>
 
@@ -21,12 +21,11 @@
         <small class="ajuda">{{ form.arquivo.help_text }}</small>
         {% if form.arquivo.errors %}<div class="erro-campo">{{ form.arquivo.errors.0 }}</div>{% endif %}
     </div>
-    <button type="submit" class="botao botao-primario">Ler e classificar</button>
+    <button type="submit" class="botao botao-primario">Ler e calcular</button>
 </form>
 
-{% if erro %}
-<div class="alerta alerta-erro">{{ erro }}</div>
-{% endif %}
+{% if erro %}<div class="alerta alerta-erro">{{ erro }}</div>{% endif %}
+{% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
 {% if resultado %}
 <section class="resumo-importacao">
@@ -36,16 +35,19 @@
         <div><span class="resumo-rotulo">Procedimentos</span><span class="resumo-valor">{{ resultado.total_registros }}</span></div>
     </div>
     <p class="nota">
-        ℹ️ O valor de honorário exibido é o que veio da MedPlus, apenas como <em>referência</em>.
-        O <strong>valor final do repasse será recalculado pelas regras (anexo 5)</strong>.
-        A classificação abaixo é um <strong>palpite inicial</strong> e poderá ser corrigida.
+        ℹ️ O honorário é <strong>recalculado pelas regras (anexo 5)</strong>. Quando a regra
+        não é clara, o sistema deixa <strong>"A definir"</strong> para você preencher — em vez
+        de arriscar um valor errado. A coluna <em>Valor bruto</em> é o que o paciente/convênio pagou.
     </p>
 </section>
 
 {% for bloco in resultado.blocos %}
 <section class="bloco-medico">
     <div class="bloco-cabecalho">
-        <h2>{{ bloco.profissional }}</h2>
+        <div>
+            <h2>{{ bloco.profissional }}</h2>
+            {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
+        </div>
         <div class="bloco-badges">
             {% for classe, qtd in bloco.resumo_classes %}
             <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ qtd }}</span>
@@ -53,9 +55,12 @@
         </div>
     </div>
 
-    {% if bloco.qtd_a_classificar %}
+    {% if bloco.lembrete %}
+    <div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>
+    {% endif %}
+    {% if bloco.qtd_a_definir %}
     <div class="alerta alerta-aviso">
-        ⚠️ {{ bloco.qtd_a_classificar }} procedimento(s) sem classe definida — precisam de conferência.
+        ⚠️ {{ bloco.qtd_a_definir }} procedimento(s) com honorário <strong>a definir</strong> — precisam da sua conferência.
     </div>
     {% endif %}
 
@@ -66,27 +71,33 @@
                 <th>Procedimento</th>
                 <th>Convênio</th>
                 <th class="num">Qtd.</th>
-                <th class="num">Honor. MedPlus (ref.)</th>
-                <th>Classe (palpite)</th>
+                <th class="num">Valor bruto</th>
+                <th class="num">Honorário</th>
+                <th>Situação</th>
+                <th>Classe</th>
             </tr>
         </thead>
         <tbody>
             {% for p in bloco.procedimentos %}
-            <tr{% if p.classe == classe_indefinida %} class="linha-indefinida"{% endif %}>
+            <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
                 <td>{{ p.data_texto }}</td>
                 <td>{{ p.procedimento }}</td>
                 <td>{{ p.convenio }}</td>
                 <td class="num">{{ p.quantidade }}</td>
-                <td class="num">{{ p.honorario_medplus|moeda }}</td>
+                <td class="num">{{ p.valor|moeda }}</td>
+                <td class="num">
+                    {% if p.status_calculo == 'a_definir' %}—{% else %}{{ p.honorario|moeda }}{% endif %}
+                </td>
+                <td><span class="badge badge-{{ p.status_calculo|slug_status }}" title="{{ p.motivo_calculo }}">{{ p.status_calculo|rotulo_status }}</span></td>
                 <td><span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span></td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr>
-                <td colspan="4" class="num"><strong>Total ({{ bloco.total_registros }} registros)</strong></td>
-                <td class="num"><strong>{{ bloco.total_honorario_medplus|moeda }}</strong></td>
-                <td></td>
+                <td colspan="5" class="num"><strong>Total de honorários calculados ({{ bloco.total_registros }} registros)</strong></td>
+                <td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td>
+                <td colspan="2"></td>
             </tr>
         </tfoot>
     </table>
