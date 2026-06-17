@@ -1,0 +1,7 @@
+# Dependências do sistema de repasses médicos
+# Instale com: .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+Django>=6.0,<6.1        # framework web (admin, ORM, auth, templates)
+pandas>=3.0             # leitura/transformação de relatórios (MedPlus, OMIE)
+openpyxl>=3.1           # leitura e escrita de planilhas .xlsx
+reportlab>=4.5          # geração de documentos PDF (repasse médico)

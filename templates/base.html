@@ -1,0 +1,35 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SeuMed — Repasses Médicos{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+    <header class="topo">
+        <div class="topo-conteudo">
+            <a href="{% url 'repasses:home' %}" class="marca">
+                <span class="marca-logo">SM</span>
+                <span class="marca-texto">SeuMed <small>Repasses Médicos</small></span>
+            </a>
+            <nav class="nav">
+                <a href="{% url 'repasses:home' %}">Início</a>
+                <a href="/admin/">Administração</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="conteudo">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="rodape">
+        <div class="rodape-conteudo">
+            <span>SeuMed · Sistema de Repasses Médicos</span>
+            <span class="rodape-versao">Protótipo · v0.1</span>
+        </div>
+    </footer>
+</body>
+</html>

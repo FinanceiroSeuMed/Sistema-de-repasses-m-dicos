@@ -1,0 +1,26 @@
+# Ambiente Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Banco de dados local (SQLite) — não versionar dados
+db.sqlite3
+db.sqlite3-journal
+
+# Arquivos estáticos coletados
+/staticfiles/
+
+# Variáveis de ambiente / segredos
+.env
+*.env
+
+# Arquivos do sistema operacional / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Arquivos temporários de importação/exportação
+/media/
+*.tmp
