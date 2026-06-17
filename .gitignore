@@ -24,3 +24,6 @@ Thumbs.db
 # Arquivos temporários de importação/exportação
 /media/
 *.tmp
+
+# Amostras / modelos reais (dados sensíveis — não versionar)
+/amostras/
