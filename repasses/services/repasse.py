@@ -45,6 +45,19 @@ def nome_base(bloco) -> str:
     return f'{nome} {dia}'.strip()
 
 
+def _limpar_nome(nome) -> str:
+    return _INVALIDO.sub('', str(nome or '')).strip().rstrip('.').strip()
+
+
+def nome_base_anestesista(entry) -> str:
+    """Ex.: 'Dra. Isabela Miwa Maeda 07-05 (Dr. Rodolpho...)'."""
+    anest = _limpar_nome(entry.get('anestesista'))
+    cirurgiao = _limpar_nome(entry.get('cirurgiao'))
+    data = entry.get('data')
+    dia = data.strftime('%d-%m') if data else 'sem-data'
+    return f'{anest} {dia} ({cirurgiao})'.strip()
+
+
 def pagaveis(bloco):
     """Só as linhas com honorário a receber (> 0). Linhas R$ 0,00 e 'a definir'
     não entram no Excel arquivado nem no PDF enviado ao médico."""
@@ -179,5 +192,60 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
         f'Total de {len(pagaveis(bloco))} procedimento(s) com repasse. '
         'Documento para conferência do profissional.', st_sub))
 
+    doc.build(elems)
+    return buf.getvalue()
+
+
+def gerar_pdf_anestesista(entry, unidade: str) -> bytes:
+    """PDF de repasse do anestesista: lista as cirurgias do dia (com o cirurgião)
+    e o total fixo do anestesista."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=16 * mm,
+                            leftMargin=16 * mm, rightMargin=16 * mm,
+                            title=f'Repasse anestesista {entry.get("anestesista")}')
+    estilos = getSampleStyleSheet()
+    st_titulo = ParagraphStyle('t', parent=estilos['Title'], fontSize=15, spaceAfter=2,
+                               textColor=colors.HexColor('#0B5FA5'))
+    st_sub = ParagraphStyle('s', parent=estilos['Normal'], fontSize=9, textColor=colors.HexColor('#52606d'))
+    st_info = ParagraphStyle('i', parent=estilos['Normal'], fontSize=10, spaceAfter=2)
+    st_cel = ParagraphStyle('c', parent=estilos['Normal'], fontSize=8.5, leading=11)
+
+    data = entry.get('data')
+    elems = [
+        Paragraph(unidade or 'Repasse de Anestesia', st_titulo),
+        Paragraph('Demonstrativo de Repasse de Anestesia', st_sub),
+        Spacer(1, 8),
+        Paragraph(f'<b>Anestesista:</b> {entry.get("anestesista")}', st_info),
+        Paragraph(f'<b>Cirurgião:</b> {entry.get("cirurgiao")}', st_info),
+    ]
+    if data:
+        elems.append(Paragraph(f'<b>Data:</b> {data.strftime("%d/%m/%Y")}', st_info))
+    elems.append(Spacer(1, 8))
+
+    dados = [['Data', 'Procedimento', 'Convênio', 'Qtd.']]
+    for p in entry.get('cirurgias', []):
+        dados.append([p.data_texto, Paragraph(p.procedimento, st_cel), p.convenio, str(p.quantidade)])
+
+    tabela = Table(dados, colWidths=[24 * mm, 96 * mm, 36 * mm, 14 * mm], repeatRows=1)
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0B5FA5')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+        ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F7F9FC')]),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#E2E8F0')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    elems.append(tabela)
+    elems.append(Spacer(1, 10))
+    elems.append(Paragraph(
+        f'<b>Total do repasse (anestesia):</b> {moeda(entry.get("valor"))}',
+        ParagraphStyle('tot', parent=estilos['Normal'], fontSize=12)))
+    elems.append(Spacer(1, 4))
+    elems.append(Paragraph(
+        f'{len(entry.get("cirurgias", []))} cirurgia(s). Documento para conferência.', st_sub))
     doc.build(elems)
     return buf.getvalue()

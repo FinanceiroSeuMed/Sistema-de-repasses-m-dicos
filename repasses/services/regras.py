@@ -36,6 +36,23 @@ CATARATA_AVISTA = 0.30       # à vista (dinheiro/pix/débito)
 CATARATA_PARCELADO = 0.28    # parcelado
 FELLOW_PERCENTUAL = 0.40     # fellow recebe 40%; cirurgião 60%
 
+# Anestesista: Cassiana/Isabela/Marília/Suellen = 1200 base + 200/h extra;
+# Regina = 1000 (15-24 pacientes) ou 1500 (>24) + 200/h extra.
+ANESTESISTA_BASE = 1200
+ANESTESISTA_HORA_EXTRA = 200
+REGINA_LIMITE_PACIENTES = 24
+REGINA_BASE_BAIXO = 1000
+REGINA_BASE_ALTO = 1500
+
+
+def valor_anestesista(nome: str, horas_extra=0, num_pacientes=None) -> float:
+    n = normalizar(nome)
+    if 'regina' in n:
+        base = REGINA_BASE_ALTO if (num_pacientes or 0) > REGINA_LIMITE_PACIENTES else REGINA_BASE_BAIXO
+    else:
+        base = ANESTESISTA_BASE
+    return round(base + (horas_extra or 0) * ANESTESISTA_HORA_EXTRA, 2)
+
 # Correções de valores da planilha confirmadas pelos testes de ouro da diretoria.
 _OVERRIDES = {
     ('blefaroplastia mono', 'cisa'): 550,  # 549,99 -> 550

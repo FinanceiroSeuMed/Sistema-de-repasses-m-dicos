@@ -112,6 +112,10 @@ class BlocoMedico:
                          if p.status_calculo == 'calculado'), 2)
 
     @property
+    def tem_cirurgia(self) -> bool:
+        return any(p.classe == CLASSE_CIRURGIA for p in self.procedimentos)
+
+    @property
     def qtd_a_definir(self) -> int:
         return sum(1 for p in self.procedimentos if p.status_calculo == 'a_definir')
 
@@ -134,6 +138,7 @@ class ResultadoImportacao:
     unidade: str
     blocos: list[BlocoMedico] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    anestesistas: list = field(default_factory=list)  # repasses de anestesista
 
     @property
     def total_registros(self) -> int:

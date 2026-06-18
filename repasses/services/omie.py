@@ -113,6 +113,14 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
             pendencias.append(f'Classe "{classe}" sem categoria OMIE definida — linha de {nome} ficou sem categoria.')
         linhas.append({'nome': nome, 'categoria': categoria, 'valor': soma,
                        'registro': ref, 'vencimento': venc})
+
+    # Linhas dos anestesistas (categoria própria)
+    for a in getattr(resultado, 'anestesistas', []):
+        d = a.get('data') or ref
+        linhas.append({'nome': a.get('razao_social') or a.get('anestesista'),
+                       'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
+                       'registro': d, 'vencimento': venc_dia10_mes_seguinte(d)})
+
     linhas.sort(key=lambda x: (x['nome'], x['categoria']))
     conteudo, n = _escrever(modelo_path, linhas)
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)

@@ -218,6 +218,31 @@ def _resolver_cirurgias(resultado, post):
         bloco.procedimentos.extend(linhas)
 
 
+def _resolver_anestesistas(resultado, post):
+    """Para cada cirurgião com cirurgia, registra o anestesista escolhido na
+    revisão (valor fixo do dia + horas extras) — gera linha no a pagar e PDF."""
+    for i, bloco in enumerate(list(resultado.blocos)):
+        if not bloco.tem_cirurgia:
+            continue
+        nome = (post.get(f'anest_nome_{i}') or '').strip()
+        if not nome:
+            continue
+        horas = _num(post.get(f'anest_horas_{i}')) or 0
+        pacientes = _num(post.get(f'anest_pac_{i}'))
+        valor = regras.valor_anestesista(nome, horas, pacientes)
+        m = Medico.objects.filter(nome=nome).first()
+        cirurgias = [p for p in bloco.procedimentos if p.classe == medplus.CLASSE_CIRURGIA]
+        datas = [p.data for p in cirurgias if p.data]
+        resultado.anestesistas.append({
+            'anestesista': nome,
+            'razao_social': m.razao_social if m else '',
+            'cirurgiao': bloco.profissional,
+            'data': max(datas) if datas else None,
+            'valor': valor,
+            'cirurgias': cirurgias,
+        })
+
+
 def _resumir_pendencias(itens):
     contagem = Counter(itens)
     return [f'{q}× {msg}' if q > 1 else msg for msg, q in contagem.items()]
@@ -285,6 +310,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'qtd_cirurgias': len(cirurgias),
         'classes': medplus.CLASSES,
         'fellows': list(Medico.objects.filter(eh_fellow=True)),
+        'anestesistas': list(Medico.objects.filter(eh_anestesista=True)),
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
 
@@ -300,6 +326,7 @@ def exportar(request):
 
     resultado, aviso = _ler_e_processar(caminho, token)
     _aplicar_edicoes(resultado, request.POST)
+    _resolver_anestesistas(resultado, request.POST)
     _resolver_cirurgias(resultado, request.POST)
 
     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
@@ -316,6 +343,11 @@ def exportar(request):
         grupo = f'Repasse — {bloco.profissional}'
         arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
         arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
+
+    for a in resultado.anestesistas:
+        base = repasse.nome_base_anestesista(a)
+        grupo = f'Anestesista — {a["anestesista"]}'
+        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
 
     pasta_saida, downloads = _salvar_saidas(arquivos)
     pendencias = _resumir_pendencias(pagar.pendencias + receber.pendencias)

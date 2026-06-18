@@ -84,6 +84,24 @@
 
         {% if bloco.lembrete %}<div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>{% endif %}
 
+        {% if bloco.tem_cirurgia %}
+        <div class="anestesista-box">
+            <strong>🔵 Anestesista da cirurgia</strong>
+            <span class="campo-inline">
+                <select name="anest_nome_{{ forloop.counter0 }}" class="inp-classe">
+                    <option value="">— sem anestesista —</option>
+                    {% for a in anestesistas %}<option value="{{ a.nome }}">{{ a.nome }}</option>{% endfor %}
+                </select>
+            </span>
+            <span class="campo-inline">horas extras
+                <input type="number" name="anest_horas_{{ forloop.counter0 }}" class="inp-anest" min="0" value="0">
+            </span>
+            <span class="campo-inline">nº pacientes <small>(só Dra. Regina)</small>
+                <input type="number" name="anest_pac_{{ forloop.counter0 }}" class="inp-anest" min="0">
+            </span>
+        </div>
+        {% endif %}
+
         <table class="tabela">
             <thead>
                 <tr>
