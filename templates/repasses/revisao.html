@@ -101,17 +101,32 @@
                     <td class="num">{{ p.quantidade }}</td>
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
+                        {% if p.status_calculo == 'catarata' %}
+                        <select class="inp-classe" name="cat_modo_{{ p.idx }}">
+                            <option value="">à vista/parcelado?</option>
+                            <option value="avista">À vista (30%)</option>
+                            <option value="parcelado">Parcelado (28%)</option>
+                        </select>
+                        {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
                                value="{{ p.honorario|default_if_none:'' }}" placeholder="—"
                                title="{{ p.motivo_calculo }}">
+                        {% endif %}
                     </td>
                     <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span></td>
                     <td>
+                        {% if p.status_calculo == 'catarata' %}
+                        <select class="inp-classe" name="cat_fellow_{{ p.idx }}">
+                            <option value="">sem fellow</option>
+                            {% for f in fellows %}<option value="{{ f.nome }}">{{ f.nome }}</option>{% endfor %}
+                        </select>
+                        {% else %}
                         <select class="inp-classe" name="classe_{{ p.idx }}">
                             {% for c in classes %}
                             <option value="{{ c }}"{% if c == p.classe %} selected{% endif %}>{{ c }}</option>
                             {% endfor %}
                         </select>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}

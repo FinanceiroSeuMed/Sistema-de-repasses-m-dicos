@@ -29,10 +29,15 @@ CALCULADO = 'calculado'      # encontrou regra e calculou
 NAO_RECEBE = 'nao_recebe'    # regra diz que não há repasse (0,00)
 A_DEFINIR = 'a_definir'      # sem regra clara -> em branco para o usuário
 COMPONENTE = 'componente'    # componente de cirurgia (anest./hospital) — não conta no cirurgião
+CATARATA = 'catarata'        # catarata particular — precisa de à vista/parcelado + fellow na revisão
+
+# Percentuais da catarata particular
+CATARATA_AVISTA = 0.30       # à vista (dinheiro/pix/débito)
+CATARATA_PARCELADO = 0.28    # parcelado
+FELLOW_PERCENTUAL = 0.40     # fellow recebe 40%; cirurgião 60%
 
 # Correções de valores da planilha confirmadas pelos testes de ouro da diretoria.
 _OVERRIDES = {
-    ('consulta', 'sus'): 10,            # consulta SUS = 10 (planilha trazia 25)
     ('blefaroplastia mono', 'cisa'): 550,  # 549,99 -> 550
 }
 
@@ -335,8 +340,11 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
                 return ResultadoCalculo(CALCULADO, round(val, 2),
                                         motivo=f'Catarata {pagador.upper()} (valor fixo do médico).',
                                         regra='Cirurgia de Catarata', tipo=FIXO)
+        if pagador == 'particular':
+            return ResultadoCalculo(CATARATA, None,
+                                    motivo='Catarata particular — informe à vista/parcelado e fellow.')
         return ResultadoCalculo(A_DEFINIR, None,
-                                motivo='Catarata — definir na etapa de cirurgia (à vista/parcelado, fellow).')
+                                motivo='Catarata — sem valor fixo para este médico; preencher manualmente.')
 
     candidatos = []
     for regra in livro.procedimentos:
@@ -354,6 +362,12 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
     _, _, regra = candidatos[0]
     bruto = regra.valores.get(pagador)
     tipo, val = _classificar_valor(bruto)
+
+    # Consulta no SUS: a regular é R$ 25, mas a consulta COM TONOMETRIA ("tono")
+    # vira R$ 10 (valor pago pelo SUS é constante e distingue os dois casos).
+    if regra.nome_norm == 'consulta' and pagador == 'sus' and 'tono' in normalizar(procedimento):
+        return ResultadoCalculo(CALCULADO, 10.0, motivo='Consulta com tonometria (SUS) — R$ 10.',
+                                regra=regra.nome, tipo=FIXO)
 
     if tipo == NEGATIVO:
         return ResultadoCalculo(NAO_RECEBE, 0.0, motivo=f'Regra "{regra.nome}" não prevê repasse neste convênio.',

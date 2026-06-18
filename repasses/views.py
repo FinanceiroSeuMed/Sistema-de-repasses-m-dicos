@@ -107,6 +107,8 @@ def _aplicar_edicoes(resultado, post):
     """Aplica as edições feitas na tela de revisão (honorário e classe)."""
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
+            if p.status_calculo == regras.CATARATA:
+                continue  # catarata é resolvida em _resolver_cirurgias
             classe = (post.get(f'classe_{p.idx}') or '').strip()
             if classe:
                 p.classe = classe
@@ -115,6 +117,49 @@ def _aplicar_edicoes(resultado, post):
                 p.honorario = valor
                 p.status_calculo = 'calculado' if valor > 0 else 'nao_recebe'
                 p.motivo_calculo = 'Editado manualmente na revisão.'
+
+
+def _resolver_cirurgias(resultado, post):
+    """Resolve a catarata particular: à vista/parcelado, split 60/40 com fellow,
+    e cria as linhas do fellow (que aparecem no repasse dele e do cirurgião)."""
+    from collections import defaultdict
+    extras = defaultdict(list)
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            if p.status_calculo != regras.CATARATA or p.valor is None:
+                continue
+            modo = (post.get(f'cat_modo_{p.idx}') or '').strip()
+            fellow = (post.get(f'cat_fellow_{p.idx}') or '').strip()
+            if not modo:
+                continue  # não preenchido — permanece pendente
+            taxa = regras.CATARATA_AVISTA if modo == 'avista' else regras.CATARATA_PARCELADO
+            total = taxa * p.valor
+            if fellow:
+                p.honorario = round(total * (1 - regras.FELLOW_PERCENTUAL), 2)
+                p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 60%; fellow {fellow} 40%.'
+                linha = medplus.Procedimento(
+                    data=p.data, data_texto=p.data_texto, paciente=p.paciente,
+                    procedimento=f'{p.procedimento} (participação em cirurgia)',
+                    convenio=p.convenio, quantidade=p.quantidade, valor=p.valor,
+                    honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA)
+                linha.honorario = round(total * regras.FELLOW_PERCENTUAL, 2)
+                linha.status_calculo = 'calculado'
+                linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
+                extras[fellow].append(linha)
+            else:
+                p.honorario = round(total, 2)
+                p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 100% (sem fellow).'
+            p.status_calculo = 'calculado'
+
+    for fellow, linhas in extras.items():
+        bloco = next((b for b in resultado.blocos
+                      if regras.normalizar(b.profissional) == regras.normalizar(fellow)), None)
+        if bloco is None:
+            m = Medico.objects.filter(nome=fellow).first()
+            bloco = medplus.BlocoMedico(profissional=fellow,
+                                        razao_social=(m.razao_social if m else ''))
+            resultado.blocos.append(bloco)
+        bloco.procedimentos.extend(linhas)
 
 
 def _resumir_pendencias(itens):
@@ -132,6 +177,8 @@ def _pendencias_revisao(resultado):
         for p in b.procedimentos:
             if p.status_calculo == 'a_definir':
                 itens.append(f'{b.profissional}: "{p.procedimento[:40]}" a definir.')
+            elif p.status_calculo == regras.CATARATA:
+                itens.append(f'{b.profissional}: catarata particular — informe à vista/parcelado e fellow.')
     return _resumir_pendencias(itens)
 
 
@@ -181,6 +228,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'pasta_saida': pasta_saida,
         'qtd_cirurgias': len(cirurgias),
         'classes': medplus.CLASSES,
+        'fellows': list(Medico.objects.filter(eh_fellow=True)),
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
 
@@ -196,6 +244,7 @@ def exportar(request):
 
     resultado, aviso = _ler_e_processar(caminho, token)
     _aplicar_edicoes(resultado, request.POST)
+    _resolver_cirurgias(resultado, request.POST)
 
     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
     receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE,
