@@ -65,6 +65,40 @@ def _caminho_upload(token: str):
 
 
 _RE_SUFIXO_CADASTRO = re.compile(r'\s*\([^)]*\)\s*$')
+_RE_TITULO_MEDICO = re.compile(r'dra?\b')
+# Médicos/agendas deixados de fora por ora (entram em funcionalidade futura)
+_EXCLUIR_MEDICOS = ('crivari', 'guilherme', 'maria marta')
+
+
+def _filtrar_blocos(resultado):
+    """Remove agendas que não são de médico (sem Dr./Dra.) e os deixados de fora."""
+    novos = []
+    for bloco in resultado.blocos:
+        n = regras.normalizar(bloco.profissional)
+        if not _RE_TITULO_MEDICO.match(n):
+            continue  # ex.: "Agenda Glaucoma", "Agenda Externa"
+        if any(x in n for x in _EXCLUIR_MEDICOS):
+            continue  # Crivari, Guilherme, Maria Marta — por ora
+        novos.append(bloco)
+    resultado.blocos = novos
+
+
+def _linha_vale(p):
+    """Linhas que NÃO entram em nenhum lugar (nem preview): R$0, componentes,
+    taxas de sala/utilização e 'Não faturável'."""
+    if p.status_calculo in ('nao_recebe', 'componente'):
+        return False
+    if p.classe == medplus.CLASSE_TAXA:
+        return False
+    if 'nao faturavel' in regras.normalizar(p.procedimento):
+        return False
+    return True
+
+
+def _limpar_linhas(resultado):
+    for bloco in resultado.blocos:
+        bloco.procedimentos = [p for p in bloco.procedimentos if _linha_vale(p)]
+    resultado.blocos = [b for b in resultado.blocos if b.procedimentos]
 
 
 def _unificar_medicos(resultado):
@@ -85,6 +119,7 @@ def _unificar_medicos(resultado):
 
 def _ler_e_processar(caminho, nome=''):
     resultado = medplus.ler_relatorio(str(caminho), nome)
+    _filtrar_blocos(resultado)
     _unificar_medicos(resultado)
     livro = regras.carregar_livro_padrao()
     aviso = None
@@ -96,6 +131,7 @@ def _ler_e_processar(caminho, nome=''):
         # Residentes não recebem -> não aparecem no preview nem na exportação
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
+    _limpar_linhas(resultado)
     _indexar(resultado)
     return resultado, aviso
 

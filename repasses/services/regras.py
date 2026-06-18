@@ -57,7 +57,7 @@ NEGATIVO = 'negativo'        # "-" -> não recebe
 _PAGADORES = ('particular', 'convenio', 'sus', 'oci', 'cisa')
 
 # Convênios que devem ser tratados como Particular no cálculo do honorário.
-_CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica')
+_CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica', 'amil')
 
 # palavras pouco informativas, ignoradas no casamento
 _STOP = {'a', 'o', 'de', 'da', 'do', 'com', 'e', 'c', 'em', 'por', '-', 'ao', 'mono'}
@@ -258,16 +258,20 @@ def carregar_regras(caminho) -> LivroRegras:
 
 
 def _valor_catarata(livro: LivroRegras, medico_nome: str, pagador: str):
-    """Valor fixo de catarata para o médico (regras 'Cirurgia de Catarata - X')."""
-    alvo = normalizar(medico_nome)
+    """Valor fixo de catarata para o médico (regras 'Cirurgia de Catarata - X').
+
+    Casa por PALAVRA INTEIRA do nome (ex.: 'Ana P' casa 'Dra. Ana Paula'),
+    evitando falsos positivos por substring.
+    """
+    nome_toks = set(normalizar(medico_nome).split())
     for regra in livro.procedimentos:
         if regra.nome_norm.startswith('cirurgia de catarata'):
-            resto = regra.nome_norm.replace('cirurgia de catarata', '')
-            for tok in resto.split():
-                if len(tok) > 3 and tok in alvo:
-                    tipo, val = _classificar_valor(regra.valores.get(pagador))
-                    if tipo in (FIXO, PERCENTUAL):
-                        return val, tipo
+            resto = set(regra.nome_norm.replace('cirurgia de catarata', '').split())
+            comuns = {t for t in (nome_toks & resto) if len(t) >= 3}
+            if comuns:
+                tipo, val = _classificar_valor(regra.valores.get(pagador))
+                if tipo in (FIXO, PERCENTUAL):
+                    return val, tipo
     return None, None
 
 
