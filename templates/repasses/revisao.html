@@ -133,8 +133,8 @@
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="5" class="num"><strong>Total a pagar ({{ bloco.total_registros }} registros)</strong></td>
-                    <td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td>
+                    <td colspan="5" class="num"><strong>Total a pagar (<span class="conta-linhas">{{ bloco.total_registros }}</span> registros)</strong></td>
+                    <td class="num"><strong class="total-bloco">{{ bloco.total_honorario|moeda }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
             </tfoot>
@@ -142,4 +142,38 @@
     </section>
     {% endfor %}
 </form>
+
+<script>
+// Sincroniza o total exibido com os valores realmente usados (mesmos campos)
+(function () {
+    function paraNumero(s) {
+        s = (s || '').replace(/[^0-9.,-]/g, '').trim();
+        if (!s) return 0;
+        if (s.indexOf(',') > -1 && s.indexOf('.') > -1) s = s.replace(/\./g, '').replace(',', '.');
+        else if (s.indexOf(',') > -1) s = s.replace(',', '.');
+        var v = parseFloat(s);
+        return isNaN(v) ? 0 : v;
+    }
+    function paraReais(v) {
+        return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function recalcular(tabela) {
+        var total = 0, linhas = 0;
+        tabela.querySelectorAll('input.inp-hon').forEach(function (inp) {
+            var v = paraNumero(inp.value);
+            if (v > 0) { total += v; linhas += 1; }
+        });
+        var cel = tabela.querySelector('.total-bloco');
+        if (cel) cel.textContent = paraReais(total);
+        var cl = tabela.querySelector('.conta-linhas');
+        if (cl) cl.textContent = linhas;
+    }
+    document.querySelectorAll('table.tabela').forEach(function (tabela) {
+        tabela.addEventListener('input', function (e) {
+            if (e.target.classList && e.target.classList.contains('inp-hon')) recalcular(tabela);
+        });
+        recalcular(tabela);
+    });
+})();
+</script>
 {% endblock %}

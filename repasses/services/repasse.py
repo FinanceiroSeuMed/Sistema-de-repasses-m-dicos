@@ -176,7 +176,7 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     elems.append(tabela)
     elems.append(Spacer(1, 10))
     elems.append(Paragraph(
-        f'Total de {len(bloco.procedimentos)} procedimento(s). '
+        f'Total de {len(pagaveis(bloco))} procedimento(s) com repasse. '
         'Documento para conferência do profissional.', st_sub))
 
     doc.build(elems)
