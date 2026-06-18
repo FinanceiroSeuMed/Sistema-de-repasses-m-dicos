@@ -23,14 +23,18 @@ from datetime import date
 from openpyxl import load_workbook
 
 from . import medplus
+from .regras import normalizar
 
 # Mapeamento classe -> categoria da OMIE (contas a pagar)
 CATEGORIA_POR_CLASSE = {
     medplus.CLASSE_CIRURGIA: 'Repasse Oftalmologistas - Cirurgia',
     medplus.CLASSE_EXAME: 'Repasse Oftalmologistas - Exame',
     medplus.CLASSE_PRECEPTORIA: 'Preceptoria',
-    # Anestesistas: 'Repasse Anestesiologistas' (quando houver essa classe)
 }
+CATEGORIA_ANESTESISTA = 'Repasses Anestesiologistas'
+
+# Taxa de sala NÃO entra no a pagar (só no a receber).
+CLASSES_FORA_DO_PAGAR = {medplus.CLASSE_TAXA}
 
 CONTA_CORRENTE = 'Omie.CASH'
 
@@ -95,6 +99,8 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
         if not bloco.razao_social:
             pendencias.append(f'{bloco.profissional}: sem Razão Social (usado o nome) — confira na OMIE.')
         for p in bloco.procedimentos:
+            if p.classe in CLASSES_FORA_DO_PAGAR:
+                continue  # taxa de sala só vai no a receber
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
                 grupos[(nome_forn, p.classe)] += p.honorario
             elif p.status_calculo == 'a_definir':
@@ -112,11 +118,48 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
 
 
-def gerar_contas_receber(resultado, modelo_path, categoria_receber: str) -> ResultadoSaida:
+# Tokens que indicam cirurgia (para a categoria do a receber)
+_CIRURGIA_TOKENS = ('cirurgia', 'facectomia', 'facoemulsificacao', 'faco', 'vitrectomia',
+                    'blefaroplastia', 'pterigio', 'calazio', 'ptose', 'injecao', 'intravitrea',
+                    'trabeculectomia', 'transplante', 'reconstrucao', 'iridotomia', 'capsulotomia')
+
+
+def categoria_receber(p, fallback='Outras Receitas com Serviços') -> str:
+    """Categoria OMIE do contas a receber, por atendimento (tipo × convênio).
+
+    Mapeamento inferido do print da diretoria — sujeito a confirmação.
+    """
+    convn = normalizar(p.convenio)
+    n = normalizar(p.procedimento)
+
+    if p.classe == medplus.CLASSE_TAXA or 'taxa' in convn:
+        return 'Taxa de Sala / Uso de Estrutura'
+    if 'cisa' in convn:
+        return 'Serviços - CISAMUSEP'
+    if 'particular' in convn:
+        if p.classe == medplus.CLASSE_CIRURGIA or any(t in n for t in _CIRURGIA_TOKENS):
+            return 'Cirurgias - Particular'
+        if 'consulta' in n:
+            return 'Consultas - Particular'
+        return 'Diagnósticos e Procedimentos - Particular'
+    if 'sus' in convn or convn.startswith('pg') or 'oci' in convn:
+        if convn.startswith('pg') or 'glaucoma' in n:
+            return 'Projeto Glaucoma - SUS'
+        if 'vitrectomia' in n:
+            return 'Vitrectomia - SUS'
+        if any(t in n for t in ('catarata', 'facectomia', 'facoemulsificacao', 'faco')):
+            return 'Cirurgias de Catarata - SUS'
+        return 'Outros Serviços - SUS'
+    if convn:
+        return 'Diversas Operadoras de Saúde'
+    return fallback
+
+
+def gerar_contas_receber(resultado, modelo_path, categoria_fallback='Outras Receitas com Serviços') -> ResultadoSaida:
     ref = _data_referencia(resultado)
     venc = venc_dia10_mes_seguinte(ref)
     pendencias = []
-    grupos = defaultdict(float)        # convenio -> soma valor bruto
+    grupos = defaultdict(float)        # (convênio, categoria) -> soma valor bruto
     sem_valor = 0
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
@@ -124,14 +167,15 @@ def gerar_contas_receber(resultado, modelo_path, categoria_receber: str) -> Resu
                 sem_valor += 1
                 continue
             convenio = p.convenio or '(sem convênio)'
-            grupos[convenio] += p.valor
+            cat = categoria_receber(p, categoria_fallback)
+            grupos[(convenio, cat)] += p.valor
     if sem_valor:
         pendencias.append(f'{sem_valor} procedimento(s) sem valor bruto (arquivo do médico não traz o valor) — '
                           'use o relatório completo da MedPlus para o contas a receber.')
 
     linhas = []
-    for convenio, soma in sorted(grupos.items()):
-        linhas.append({'nome': convenio, 'categoria': categoria_receber, 'valor': soma,
+    for (convenio, cat), soma in sorted(grupos.items()):
+        linhas.append({'nome': convenio, 'categoria': cat, 'valor': soma,
                        'registro': ref, 'vencimento': venc})
     conteudo, n = _escrever(modelo_path, linhas)
     return ResultadoSaida('OMIE_Contas_a_Receber.xlsx', conteudo, n, pendencias)

@@ -204,12 +204,13 @@ def mapear_convenio(convenio: str) -> str | None:
     n = normalizar(convenio)
     if not n:
         return None
-    if 'sus' in n:
-        return 'sus'
-    if 'cisa' in n or 'cisamusep' in n:
-        return 'cisa'
+    # ordem importa: "OCI - SUS" é OCI (não SUS); CISA antes de SUS
     if 'oci' in n:
         return 'oci'
+    if 'cisa' in n:
+        return 'cisa'
+    if 'sus' in n or n.startswith('pg'):
+        return 'sus'
     if 'particular' in n:
         return 'particular'
     if 'conven' in n:

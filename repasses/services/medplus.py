@@ -299,6 +299,8 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
         procedimento = _texto(linha.iloc[col_proc]) if col_proc is not None else ''
         if not procedimento or data_obj is None:
             continue  # sem data válida + procedimento não é linha de dado
+        if _norm(procedimento).startswith('status'):
+            continue  # linha de status do paciente (metadado do MedPlus), não é procedimento
 
         def _v(campo):
             idx = colmap.get(campo)
