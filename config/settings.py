@@ -142,3 +142,6 @@ OMIE_CATEGORIA_RECEBER = 'Outras Receitas com Serviços'
 
 # Pasta onde os arquivos gerados ficam disponíveis para download
 SAIDAS_DIR = BASE_DIR / 'saidas'
+
+# Pasta de uploads temporários (relatório aguardando revisão antes de exportar)
+UPLOADS_DIR = BASE_DIR / 'uploads'

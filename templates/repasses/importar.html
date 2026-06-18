@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% load repasses_extras %}
 
 {% block title %}Importar relatório da MedPlus{% endblock %}
 
@@ -8,8 +7,8 @@
     <h1>Importar relatório da MedPlus</h1>
     <p class="subtitulo-escuro">
         Envie o relatório <strong>"Procedimentos pela Agenda"</strong> exportado da MedPlus
-        (.xls). O sistema lê os procedimentos de cada médico, classifica e <strong>recalcula
-        o honorário pelas regras de repasse</strong>.
+        (.xls). O sistema lê, classifica e <strong>recalcula os honorários</strong>, e leva
+        você a uma <strong>tela de revisão</strong> antes de exportar qualquer arquivo.
     </p>
 </section>
 
@@ -21,114 +20,8 @@
         <small class="ajuda">{{ form.arquivo.help_text }}</small>
         {% if form.arquivo.errors %}<div class="erro-campo">{{ form.arquivo.errors.0 }}</div>{% endif %}
     </div>
-    <button type="submit" class="botao botao-primario">Ler e calcular</button>
+    <button type="submit" class="botao botao-primario">Ler e revisar</button>
 </form>
 
 {% if erro %}<div class="alerta alerta-erro">{{ erro }}</div>{% endif %}
-{% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
-
-{% if resultado %}
-<section class="resumo-importacao">
-    <div class="resumo-linha">
-        <div><span class="resumo-rotulo">Unidade</span><span class="resumo-valor">{{ resultado.unidade }}</span></div>
-        <div><span class="resumo-rotulo">Médicos</span><span class="resumo-valor">{{ resultado.blocos|length }}</span></div>
-        <div><span class="resumo-rotulo">Procedimentos</span><span class="resumo-valor">{{ resultado.total_registros }}</span></div>
-    </div>
-    <p class="nota">
-        ℹ️ O honorário é <strong>recalculado pelas regras (anexo 5)</strong>. Quando a regra
-        não é clara, o sistema deixa <strong>"A definir"</strong> para você preencher — em vez
-        de arriscar um valor errado. A coluna <em>Valor bruto</em> é o que o paciente/convênio pagou.
-    </p>
-</section>
-
-{% if downloads %}
-<section class="saidas">
-    <h2>Arquivos gerados</h2>
-    <p class="nota">Os arquivos <strong>OMIE</strong> são para importar no sistema; os <strong>repasses</strong> (Excel para arquivar + PDF para o médico) saem um por médico. Tudo salvo para download.</p>
-    {% regroup downloads by grupo as grupos %}
-    {% for g in grupos %}
-    <div class="saida-grupo">
-        <h4>{{ g.grouper }}</h4>
-        <div class="saidas-botoes">
-            {% for d in g.list %}
-            <a class="botao botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">⬇ {{ d.arquivo }}</a>
-            {% endfor %}
-        </div>
-    </div>
-    {% endfor %}
-</section>
-{% endif %}
-
-{% if pendencias %}
-<section class="pendencias">
-    <h3>⚠️ Pendências — revise ou preencha antes de importar</h3>
-    <ul>
-        {% for p in pendencias %}<li>{{ p }}</li>{% endfor %}
-    </ul>
-</section>
-{% endif %}
-
-{% for bloco in resultado.blocos %}
-<section class="bloco-medico">
-    <div class="bloco-cabecalho">
-        <div>
-            <h2>{{ bloco.profissional }}</h2>
-            {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
-        </div>
-        <div class="bloco-badges">
-            {% for classe, qtd in bloco.resumo_classes %}
-            <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ qtd }}</span>
-            {% endfor %}
-        </div>
-    </div>
-
-    {% if bloco.lembrete %}
-    <div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>
-    {% endif %}
-    {% if bloco.qtd_a_definir %}
-    <div class="alerta alerta-aviso">
-        ⚠️ {{ bloco.qtd_a_definir }} procedimento(s) com honorário <strong>a definir</strong> — precisam da sua conferência.
-    </div>
-    {% endif %}
-
-    <table class="tabela">
-        <thead>
-            <tr>
-                <th>Data</th>
-                <th>Procedimento</th>
-                <th>Convênio</th>
-                <th class="num">Qtd.</th>
-                <th class="num">Valor bruto</th>
-                <th class="num">Honorário</th>
-                <th>Situação</th>
-                <th>Classe</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for p in bloco.procedimentos %}
-            <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
-                <td>{{ p.data_texto }}</td>
-                <td>{{ p.procedimento }}</td>
-                <td>{{ p.convenio }}</td>
-                <td class="num">{{ p.quantidade }}</td>
-                <td class="num">{{ p.valor|moeda }}</td>
-                <td class="num">
-                    {% if p.status_calculo == 'a_definir' %}—{% else %}{{ p.honorario|moeda }}{% endif %}
-                </td>
-                <td><span class="badge badge-{{ p.status_calculo|slug_status }}" title="{{ p.motivo_calculo }}">{{ p.status_calculo|rotulo_status }}</span></td>
-                <td><span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5" class="num"><strong>Total de honorários calculados ({{ bloco.total_registros }} registros)</strong></td>
-                <td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td>
-                <td colspan="2"></td>
-            </tr>
-        </tfoot>
-    </table>
-</section>
-{% endfor %}
-{% endif %}
 {% endblock %}

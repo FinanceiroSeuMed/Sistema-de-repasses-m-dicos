@@ -30,3 +30,6 @@ Thumbs.db
 
 # Arquivos gerados (saídas para download)
 /saidas/
+
+# Uploads temporários (relatórios aguardando revisão)
+/uploads/

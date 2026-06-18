@@ -45,12 +45,15 @@ def nome_base(bloco) -> str:
     return f'{nome} {dia}'.strip()
 
 
-def _hon(p):
-    return p.honorario if p.status_calculo == 'calculado' else (0.0 if p.status_calculo == 'nao_recebe' else None)
+def pagaveis(bloco):
+    """Só as linhas com honorário a receber (> 0). Linhas R$ 0,00 e 'a definir'
+    não entram no Excel arquivado nem no PDF enviado ao médico."""
+    return [p for p in bloco.procedimentos
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0]
 
 
 def _total(bloco) -> float:
-    return round(sum((_hon(p) or 0) for p in bloco.procedimentos), 2)
+    return round(sum(p.honorario for p in pagaveis(bloco)), 2)
 
 
 # --- Excel (arquivo interno) --------------------------------------------------
@@ -88,16 +91,14 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         cel.font = cabec_font
     linha += 1
 
-    for p in bloco.procedimentos:
+    for p in pagaveis(bloco):
         ws.cell(linha, 1, p.data_texto)
         ws.cell(linha, 2, p.paciente)
         ws.cell(linha, 3, p.procedimento)
         ws.cell(linha, 4, p.convenio)
         ws.cell(linha, 5, p.quantidade)
-        h = _hon(p)
-        cel_h = ws.cell(linha, 6, h if h is not None else 'A definir')
-        if isinstance(h, (int, float)):
-            cel_h.number_format = 'R$ #,##0.00'
+        cel_h = ws.cell(linha, 6, p.honorario)
+        cel_h.number_format = 'R$ #,##0.00'
         linha += 1
 
     ws.cell(linha, 5, 'Total').font = negrito
@@ -147,13 +148,13 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     elems.append(Spacer(1, 8))
 
     dados = [['Data', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']]
-    for p in bloco.procedimentos:
+    for p in pagaveis(bloco):
         dados.append([
             p.data_texto,
             Paragraph(p.procedimento, st_cel),
             p.convenio,
             str(p.quantidade),
-            moeda(_hon(p)),
+            moeda(p.honorario),
         ])
     dados.append(['', '', '', 'Total', moeda(_total(bloco))])
 
