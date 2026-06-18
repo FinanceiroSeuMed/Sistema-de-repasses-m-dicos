@@ -73,7 +73,45 @@ def _ler_e_processar(caminho, nome=''):
                  '"a definir". Confira REGRAS_REPASSE_PATH.')
     else:
         regras.processar(resultado, livro)
+    _indexar(resultado)
     return resultado, aviso
+
+
+def _indexar(resultado):
+    """Atribui um índice estável a cada procedimento (para edição na revisão)."""
+    i = 0
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            p.idx = i
+            i += 1
+
+
+def _num(texto):
+    t = (texto or '').strip().replace('R$', '').replace(' ', '')
+    if not t:
+        return None
+    if ',' in t and '.' in t:
+        t = t.replace('.', '').replace(',', '.')
+    elif ',' in t:
+        t = t.replace(',', '.')
+    try:
+        return round(float(t), 2)
+    except ValueError:
+        return None
+
+
+def _aplicar_edicoes(resultado, post):
+    """Aplica as edições feitas na tela de revisão (honorário e classe)."""
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            classe = (post.get(f'classe_{p.idx}') or '').strip()
+            if classe:
+                p.classe = classe
+            valor = _num(post.get(f'hon_{p.idx}'))
+            if valor is not None:
+                p.honorario = valor
+                p.status_calculo = 'calculado' if valor > 0 else 'nao_recebe'
+                p.motivo_calculo = 'Editado manualmente na revisão.'
 
 
 def _resumir_pendencias(itens):
@@ -139,6 +177,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
         'qtd_cirurgias': len(cirurgias),
+        'classes': medplus.CLASSES,
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
 
@@ -153,6 +192,7 @@ def exportar(request):
         raise Http404('Arquivo da importação não encontrado — refaça o upload.')
 
     resultado, aviso = _ler_e_processar(caminho, token)
+    _aplicar_edicoes(resultado, request.POST)
 
     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
     receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE,

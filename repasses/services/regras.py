@@ -59,7 +59,12 @@ def normalizar(texto) -> str:
 
 
 def _tokens(texto: str) -> set[str]:
-    base = normalizar(texto)
+    # remove o conteúdo entre parênteses ANTES de tokenizar — ex.: o trecho
+    # "(Incluso: ... Consulta de Avaliação)" não deve fazer uma cirurgia casar
+    # com a regra "Consulta".
+    sem_parenteses = re.sub(r'\([^)]*\)', ' ', str(texto or ''))
+    sem_parenteses = re.sub(r'\(.*$', ' ', sem_parenteses)  # parêntese que não fecha (texto truncado)
+    base = normalizar(sem_parenteses)
     toks = {p for p in base.split() if p not in _STOP and len(p) > 1}
     for chave, syn in _SINONIMOS.items():
         if chave in base:
@@ -227,12 +232,17 @@ class ResultadoCalculo:
     tipo: str = ''
 
 
-def _similaridade(tokens_proc: set, regra: RegraProcedimento, nome_proc_norm: str) -> float:
+def _similaridade(tokens_proc: set, regra: RegraProcedimento) -> tuple[float, int]:
+    """Quão bem as palavras da regra estão CONTIDAS no procedimento.
+
+    Só contém (não usa similaridade de sequência, que gerava falsos positivos
+    como 'recobrimento conjuntival' casar com 'tumor conjuntival'). Devolve
+    (proporção de palavras da regra presentes, nº de palavras casadas).
+    """
     if not regra.tokens:
-        return 0.0
-    contidos = len(regra.tokens & tokens_proc) / len(regra.tokens)
-    seq = SequenceMatcher(None, nome_proc_norm, regra.nome_norm).ratio()
-    return max(contidos, seq)
+        return 0.0, 0
+    casadas = len(regra.tokens & tokens_proc)
+    return casadas / len(regra.tokens), casadas
 
 
 def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico: str = '',
@@ -256,14 +266,15 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
         tipo, _ = _classificar_valor(regra.valores.get(pagador))
         if tipo == SEM_VALOR:
             continue
-        score = _similaridade(tokens_proc, regra, proc_norm)
-        if score >= limiar:
-            candidatos.append((score, regra, tipo))
+        proporcao, casadas = _similaridade(tokens_proc, regra)
+        if proporcao >= limiar:
+            candidatos.append((proporcao, casadas, regra))
     if not candidatos:
         return ResultadoCalculo(A_DEFINIR, None,
                                 motivo='Sem regra correspondente — preencher manualmente.')
-    candidatos.sort(key=lambda x: x[0], reverse=True)
-    score, regra, tipo = candidatos[0]
+    # melhor proporção; empate -> regra que casou mais palavras (mais específica)
+    candidatos.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    _, _, regra = candidatos[0]
     bruto = regra.valores.get(pagador)
     tipo, val = _classificar_valor(bruto)
 

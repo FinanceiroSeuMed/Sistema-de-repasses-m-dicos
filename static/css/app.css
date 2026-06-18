@@ -211,6 +211,10 @@ body {
 .botao-secundario-escuro { background: #eef2f7; color: #52606d; border: 1px solid var(--cinza-borda); }
 .botao-secundario-escuro:hover { background: #e2e8f0; }
 .titulo-secao { margin: 28px 0 8px; font-size: 20px; }
+.dica { font-size: 12px; color: var(--texto-suave); }
+.inp-hon { width: 92px; text-align: right; padding: 4px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; font-size: 13px; }
+.inp-hon:focus { outline: none; border-color: var(--azul); }
+.inp-classe { padding: 4px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; font-size: 12px; max-width: 200px; }
 
 .pendencias { margin: 16px 0; background: #fff7e6; border: 1px solid #ffe1a8; border-radius: 12px; padding: 14px 20px; }
 .pendencias h3 { margin: 0 0 8px; font-size: 15px; color: #946200; }

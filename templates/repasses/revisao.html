@@ -7,8 +7,9 @@
 <section class="pagina-cabecalho">
     <h1>Revisão do repasse</h1>
     <p class="subtitulo-escuro">
-        Confira os dados abaixo. <strong>Nenhum arquivo é gerado até você clicar em Exportar.</strong>
-        Honorários incertos ficam <strong>"A definir"</strong> e não entram nos arquivos.
+        Confira e <strong>edite</strong> os honorários e as classes abaixo.
+        <strong>Nenhum arquivo é gerado até você clicar em Exportar.</strong>
+        Linhas "A definir" e R$ 0,00 não entram nos arquivos do médico.
     </p>
 </section>
 
@@ -25,30 +26,21 @@
 
 {% if qtd_cirurgias %}
 <div class="alerta alerta-info">
-    🔪 {{ qtd_cirurgias }} lançamento(s) de cirurgia detectado(s). A escolha de <strong>anestesista</strong>,
-    <strong>horas extras</strong> e <strong>fellow</strong> (divisão 60/40 na catarata) será solicitada aqui — em construção.
+    🔪 {{ qtd_cirurgias }} lançamento(s) de cirurgia. A escolha de <strong>anestesista</strong>,
+    <strong>horas extras</strong> e <strong>fellow</strong> (divisão 60/40 na catarata) entra aqui — próxima etapa.
 </div>
 {% endif %}
 
 {% if pendencias %}
 <section class="pendencias">
-    <h3>⚠️ Pendências — revise antes de exportar</h3>
+    <h3>⚠️ Pendências — edite abaixo antes de exportar</h3>
     <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 
-<section class="acoes-exportar">
-    <form method="post" action="{% url 'repasses:exportar' %}">
-        {% csrf_token %}
-        <input type="hidden" name="token" value="{{ token }}">
-        <button type="submit" class="botao botao-primario">⬇ Exportar os arquivos (OMIE + repasses)</button>
-    </form>
-    <a class="botao botao-secundario-escuro" href="{% url 'repasses:importar' %}">Trocar arquivo</a>
-</section>
-
 {% if downloads %}
 <section class="saidas">
-    <h2>Arquivos gerados</h2>
+    <h2>✅ Arquivos gerados</h2>
     <p class="nota">Os arquivos <strong>OMIE</strong> são para importar; os <strong>repasses</strong>
         (Excel + PDF) saem um por médico. Residentes e linhas R$ 0,00 não entram.</p>
     {% regroup downloads by grupo as grupos %}
@@ -65,53 +57,73 @@
 </section>
 {% endif %}
 
-<h2 class="titulo-secao">Detalhamento por médico</h2>
-{% for bloco in resultado.blocos %}
-<section class="bloco-medico">
-    <div class="bloco-cabecalho">
-        <div>
-            <h2>{{ bloco.profissional }}</h2>
-            {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
-        </div>
-        <div class="bloco-badges">
-            {% for classe, qtd in bloco.resumo_classes %}
-            <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ qtd }}</span>
-            {% endfor %}
-        </div>
-    </div>
+<form method="post" action="{% url 'repasses:exportar' %}">
+    {% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
 
-    {% if bloco.lembrete %}<div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>{% endif %}
+    <section class="acoes-exportar">
+        <button type="submit" class="botao botao-primario">⬇ {% if downloads %}Reexportar com as edições{% else %}Exportar os arquivos{% endif %}</button>
+        <a class="botao botao-secundario-escuro" href="{% url 'repasses:importar' %}">Trocar arquivo</a>
+        <span class="dica">Edite os honorários (em branco = não entra) e a classe antes de exportar.</span>
+    </section>
 
-    <table class="tabela">
-        <thead>
-            <tr>
-                <th>Data</th><th>Procedimento</th><th>Convênio</th>
-                <th class="num">Qtd.</th><th class="num">Valor bruto</th>
-                <th class="num">Honorário</th><th>Situação</th><th>Classe</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for p in bloco.procedimentos %}
-            <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
-                <td>{{ p.data_texto }}</td>
-                <td>{{ p.procedimento }}</td>
-                <td>{{ p.convenio }}</td>
-                <td class="num">{{ p.quantidade }}</td>
-                <td class="num">{{ p.valor|moeda }}</td>
-                <td class="num">{% if p.status_calculo == 'a_definir' %}—{% else %}{{ p.honorario|moeda }}{% endif %}</td>
-                <td><span class="badge badge-{{ p.status_calculo|slug_status }}" title="{{ p.motivo_calculo }}">{{ p.status_calculo|rotulo_status }}</span></td>
-                <td><span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5" class="num"><strong>Total a pagar ({{ bloco.total_registros }} registros)</strong></td>
-                <td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td>
-                <td colspan="2"></td>
-            </tr>
-        </tfoot>
-    </table>
-</section>
-{% endfor %}
+    {% for bloco in resultado.blocos %}
+    <section class="bloco-medico">
+        <div class="bloco-cabecalho">
+            <div>
+                <h2>{{ bloco.profissional }}</h2>
+                {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
+            </div>
+            <div class="bloco-badges">
+                {% for classe, total in bloco.totais_por_classe %}
+                <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ total|moeda }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if bloco.lembrete %}<div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>{% endif %}
+
+        <table class="tabela">
+            <thead>
+                <tr>
+                    <th>Data</th><th>Procedimento</th><th>Convênio</th>
+                    <th class="num">Qtd.</th><th class="num">Valor bruto</th>
+                    <th class="num">Honorário (editável)</th><th>Situação</th><th>Classe (editável)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in bloco.procedimentos %}
+                <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
+                    <td>{{ p.data_texto }}</td>
+                    <td>{{ p.procedimento }}</td>
+                    <td>{{ p.convenio }}</td>
+                    <td class="num">{{ p.quantidade }}</td>
+                    <td class="num">{{ p.valor|moeda }}</td>
+                    <td class="num">
+                        <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
+                               value="{{ p.honorario|default_if_none:'' }}" placeholder="—"
+                               title="{{ p.motivo_calculo }}">
+                    </td>
+                    <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span></td>
+                    <td>
+                        <select class="inp-classe" name="classe_{{ p.idx }}">
+                            {% for c in classes %}
+                            <option value="{{ c }}"{% if c == p.classe %} selected{% endif %}>{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" class="num"><strong>Total a pagar ({{ bloco.total_registros }} registros)</strong></td>
+                    <td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
+        </table>
+    </section>
+    {% endfor %}
+</form>
 {% endblock %}

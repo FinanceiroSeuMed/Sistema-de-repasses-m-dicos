@@ -77,6 +77,7 @@ class Procedimento:
     honorario: float | None = None   # honorário recalculado pelas regras
     status_calculo: str = ''         # calculado / nao_recebe / a_definir
     motivo_calculo: str = ''
+    idx: int = 0                     # índice estável da linha (para edição na revisão)
 
 
 @dataclass
@@ -112,6 +113,15 @@ class BlocoMedico:
     @property
     def qtd_a_definir(self) -> int:
         return sum(1 for p in self.procedimentos if p.status_calculo == 'a_definir')
+
+    @property
+    def totais_por_classe(self) -> list[tuple[str, float]]:
+        """(classe, total de honorários calculados) — para o preview."""
+        tot = {}
+        for p in self.procedimentos:
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                tot[p.classe] = round(tot.get(p.classe, 0) + p.honorario, 2)
+        return [(c, tot[c]) for c in CLASSES if c in tot]
 
     # Preenchidos pelo orquestrador (regras.processar)
     lembrete: str = ''
