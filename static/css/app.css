@@ -199,7 +199,9 @@ body {
 
 .saidas { margin: 24px 0 8px; background: #f0f9f4; border: 1px solid #b6e3cd; border-radius: 12px; padding: 18px 22px; }
 .saidas h2 { margin: 0 0 4px; font-size: 18px; }
-.saidas-botoes { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.saida-grupo { margin-top: 12px; }
+.saida-grupo h4 { margin: 0 0 6px; font-size: 13px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .3px; }
+.saidas-botoes { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
 .botao-download { background: var(--verde); color: #fff; border: none; }
 .botao-download:hover { background: #18815a; }
 .botao-download small { font-weight: 400; opacity: .9; }

@@ -43,13 +43,19 @@
 
 {% if downloads %}
 <section class="saidas">
-    <h2>Arquivos da OMIE gerados</h2>
-    <p class="nota">Prontos para importar na OMIE. Ficam salvos para download nesta sessão.</p>
-    <div class="saidas-botoes">
-        {% for d in downloads %}
-        <a class="botao botao-primario botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">⬇ {{ d.arquivo }} <small>({{ d.linhas }} linha{{ d.linhas|pluralize }})</small></a>
-        {% endfor %}
+    <h2>Arquivos gerados</h2>
+    <p class="nota">Os arquivos <strong>OMIE</strong> são para importar no sistema; os <strong>repasses</strong> (Excel para arquivar + PDF para o médico) saem um por médico. Tudo salvo para download.</p>
+    {% regroup downloads by grupo as grupos %}
+    {% for g in grupos %}
+    <div class="saida-grupo">
+        <h4>{{ g.grouper }}</h4>
+        <div class="saidas-botoes">
+            {% for d in g.list %}
+            <a class="botao botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">⬇ {{ d.arquivo }}</a>
+            {% endfor %}
+        </div>
     </div>
+    {% endfor %}
 </section>
 {% endif %}
 

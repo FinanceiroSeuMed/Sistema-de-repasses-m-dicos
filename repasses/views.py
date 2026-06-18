@@ -9,7 +9,7 @@ from django.shortcuts import render
 
 from .forms import ImportarMedPlusForm
 from .models import Medico
-from .services import medplus, omie, regras
+from .services import medplus, omie, regras, repasse
 
 
 def home(request):
@@ -27,15 +27,15 @@ def _resumir_pendencias(itens):
     return [f'{q}× {msg}' if q > 1 else msg for msg, q in contagem.items()]
 
 
-def _salvar_saidas(saidas):
-    """Grava os arquivos gerados numa subpasta de SAIDAS_DIR e devolve (pasta, lista)."""
+def _salvar_saidas(arquivos):
+    """arquivos: lista de (grupo, nome_arquivo, conteudo). Grava e devolve (pasta, downloads)."""
     pasta = f'{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}'
     destino = Path(settings.SAIDAS_DIR) / pasta
     destino.mkdir(parents=True, exist_ok=True)
     downloads = []
-    for s in saidas:
-        (destino / s.nome_arquivo).write_bytes(s.conteudo)
-        downloads.append({'arquivo': s.nome_arquivo, 'linhas': s.linhas})
+    for grupo, nome_arquivo, conteudo in arquivos:
+        (destino / nome_arquivo).write_bytes(conteudo)
+        downloads.append({'grupo': grupo, 'arquivo': nome_arquivo})
     return pasta, downloads
 
 
@@ -68,7 +68,18 @@ def importar(request):
                     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
                     receber = omie.gerar_contas_receber(
                         resultado, settings.OMIE_RECEBER_TEMPLATE, settings.OMIE_CATEGORIA_RECEBER)
-                    pasta_saida, downloads = _salvar_saidas([pagar, receber])
+
+                    arquivos = [
+                        ('Importação OMIE', pagar.nome_arquivo, pagar.conteudo),
+                        ('Importação OMIE', receber.nome_arquivo, receber.conteudo),
+                    ]
+                    for bloco in resultado.blocos:
+                        base = repasse.nome_base(bloco)
+                        grupo = f'Repasse — {bloco.profissional}'
+                        arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
+                        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
+
+                    pasta_saida, downloads = _salvar_saidas(arquivos)
                     pendencias = _resumir_pendencias(pagar.pendencias + receber.pendencias)
     else:
         form = ImportarMedPlusForm()
