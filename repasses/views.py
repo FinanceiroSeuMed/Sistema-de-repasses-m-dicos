@@ -73,6 +73,9 @@ def _ler_e_processar(caminho, nome=''):
                  '"a definir". Confira REGRAS_REPASSE_PATH.')
     else:
         regras.processar(resultado, livro)
+        # Residentes não recebem -> não aparecem no preview nem na exportação
+        resultado.blocos = [b for b in resultado.blocos
+                            if not regras.eh_residente(livro, b.profissional)]
     _indexar(resultado)
     return resultado, aviso
 

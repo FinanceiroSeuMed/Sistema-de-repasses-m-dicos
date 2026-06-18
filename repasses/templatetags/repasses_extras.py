@@ -23,6 +23,7 @@ def slug_status(valor):
         'calculado': 'ok',
         'nao_recebe': 'zero',
         'a_definir': 'pendente',
+        'componente': 'zero',
     }.get(valor, 'pendente')
 
 
@@ -32,6 +33,7 @@ def rotulo_status(valor):
         'calculado': 'Calculado',
         'nao_recebe': 'Não recebe',
         'a_definir': 'A definir',
+        'componente': 'Cirurgia (à parte)',
     }.get(valor, 'A definir')
 
 

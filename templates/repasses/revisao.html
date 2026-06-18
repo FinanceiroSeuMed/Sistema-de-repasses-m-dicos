@@ -13,6 +13,14 @@
     </p>
 </section>
 
+{% if pendencias %}
+<section class="pendencias pendencias-topo">
+    <h3>⚠️ {{ pendencias|length }} pendência(s) — trate abaixo antes de exportar</h3>
+    <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
+    <p class="pendencias-dica">Edite o honorário (ou a classe) de cada linha marcada como <strong>"A definir"</strong> no detalhamento abaixo. Em branco = não entra nos arquivos.</p>
+</section>
+{% endif %}
+
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
 <section class="resumo-importacao">
@@ -29,13 +37,6 @@
     🔪 {{ qtd_cirurgias }} lançamento(s) de cirurgia. A escolha de <strong>anestesista</strong>,
     <strong>horas extras</strong> e <strong>fellow</strong> (divisão 60/40 na catarata) entra aqui — próxima etapa.
 </div>
-{% endif %}
-
-{% if pendencias %}
-<section class="pendencias">
-    <h3>⚠️ Pendências — edite abaixo antes de exportar</h3>
-    <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
-</section>
 {% endif %}
 
 {% if downloads %}
