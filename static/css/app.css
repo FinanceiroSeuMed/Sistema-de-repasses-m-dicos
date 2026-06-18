@@ -196,6 +196,7 @@ body {
 
 .alerta-info { background: #eaf3fb; color: #0b5fa5; border: 1px solid #bcdcf5; }
 .razao { display: block; font-size: 12px; color: var(--texto-suave); margin-top: 2px; }
+.dia-bloco { font-size: 14px; font-weight: 500; color: var(--texto-suave); }
 
 .saidas { margin: 24px 0 8px; background: #f0f9f4; border: 1px solid #b6e3cd; border-radius: 12px; padding: 18px 22px; }
 .saidas h2 { margin: 0 0 4px; font-size: 18px; }

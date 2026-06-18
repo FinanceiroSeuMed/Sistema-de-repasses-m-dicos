@@ -131,6 +131,8 @@ class BlocoMedico:
     # Preenchidos pelo orquestrador (regras.processar)
     lembrete: str = ''
     razao_social: str = ''
+    data: date | None = None          # dia do bloco (após separar por dia)
+    preceptoria_valor: float | None = None  # valor de preceptoria semanal sugerido
 
 
 @dataclass

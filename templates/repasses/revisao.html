@@ -72,7 +72,7 @@
     <section class="bloco-medico">
         <div class="bloco-cabecalho">
             <div>
-                <h2>{{ bloco.profissional }}</h2>
+                <h2>{{ bloco.profissional }}{% if bloco.data %} <span class="dia-bloco">— {{ bloco.data|date:"d/m/Y" }}</span>{% endif %}</h2>
                 {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
             </div>
             <div class="bloco-badges">
@@ -83,6 +83,17 @@
         </div>
 
         {% if bloco.lembrete %}<div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>{% endif %}
+
+        {% if bloco.preceptoria_valor %}
+        <div class="anestesista-box">
+            <strong>📘 Preceptoria semanal</strong>
+            <span class="campo-inline">valor R$
+                <input type="text" name="preceptoria_{{ forloop.counter0 }}" class="inp-anest"
+                       placeholder="{{ bloco.preceptoria_valor|stringformat:'.2f' }}">
+            </span>
+            <small>preencha no dia em que vai lançar (1× na semana)</small>
+        </div>
+        {% endif %}
 
         {% if bloco.tem_cirurgia %}
         <div class="anestesista-box">

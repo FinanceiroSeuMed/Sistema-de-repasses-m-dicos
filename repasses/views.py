@@ -121,6 +121,7 @@ def _ler_e_processar(caminho, nome=''):
     resultado = medplus.ler_relatorio(str(caminho), nome)
     _filtrar_blocos(resultado)
     _unificar_medicos(resultado)
+    _separar_por_dia(resultado)
     livro = regras.carregar_livro_padrao()
     aviso = None
     if livro is None:
@@ -131,9 +132,74 @@ def _ler_e_processar(caminho, nome=''):
         # Residentes não recebem -> não aparecem no preview nem na exportação
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
+        _aplicar_keiti(resultado)
+        _marcar_preceptoria(resultado, livro)
     _limpar_linhas(resultado)
     _indexar(resultado)
     return resultado, aviso
+
+
+def _separar_por_dia(resultado):
+    """Quebra cada bloco (médico) em um bloco por DIA de atendimento."""
+    novos = []
+    for bloco in resultado.blocos:
+        por_data = {}
+        for p in bloco.procedimentos:
+            por_data.setdefault(p.data, []).append(p)
+        datas = sorted([d for d in por_data if d is not None])
+        if None in por_data:
+            datas.append(None)
+        for d in datas:
+            nb = medplus.BlocoMedico(profissional=bloco.profissional)
+            nb.data = d
+            nb.procedimentos = por_data[d]
+            novos.append(nb)
+    resultado.blocos = novos
+
+
+def _aplicar_keiti(resultado):
+    """Dr. Keiti: R$ 1.000 (consultas/exames do dia) + 30% do valor das cirurgias."""
+    for bloco in resultado.blocos:
+        if 'keiti' not in regras.normalizar(bloco.profissional):
+            continue
+        tem_exame = False
+        novas = []
+        for p in bloco.procedimentos:
+            if p.classe == medplus.CLASSE_CIRURGIA and p.valor:
+                p.honorario = round(0.30 * p.valor, 2)
+                p.status_calculo = 'calculado'
+                p.motivo_calculo = 'Dr. Keiti: 30% do valor da cirurgia.'
+                novas.append(p)
+            elif p.classe in (medplus.CLASSE_EXAME, medplus.CLASSE_INDEFINIDA):
+                tem_exame = True  # absorvido no pacote de R$ 1.000
+            else:
+                novas.append(p)
+        if tem_exame:
+            ref = bloco.procedimentos[0] if bloco.procedimentos else None
+            pacote = medplus.Procedimento(
+                data=getattr(ref, 'data', None), data_texto=getattr(ref, 'data_texto', ''),
+                paciente='', procedimento='Consultas e Exames (pacote Dr. Keiti)',
+                convenio='', quantidade=1, valor=None, honorario_medplus=None,
+                classe=medplus.CLASSE_EXAME)
+            pacote.honorario = 1000.0
+            pacote.status_calculo = 'calculado'
+            pacote.motivo_calculo = 'Dr. Keiti: R$ 1.000 por consultas/exames do dia.'
+            novas.append(pacote)
+        bloco.procedimentos = novas
+
+
+def _num_money(texto):
+    import re as _re
+    m = _re.search(r'r\$\s*([\d.]+,\d{2}|\d[\d.]*)', (texto or '').lower())
+    return _num(m.group(1)) if m else None
+
+
+def _marcar_preceptoria(resultado, livro):
+    """Sugere o valor de preceptoria semanal (campo editável na revisão)."""
+    for bloco in resultado.blocos:
+        m = livro.medico_por_nome(bloco.profissional)
+        if m and 'preceptor' in m.categoria.lower() and 'semana' in (m.obs or '').lower():
+            bloco.preceptoria_valor = _num_money(m.obs)
 
 
 def _indexar(resultado):
@@ -201,21 +267,40 @@ def _resolver_cirurgias(resultado, post):
                 linha.honorario = round(total * regras.FELLOW_PERCENTUAL, 2)
                 linha.status_calculo = 'calculado'
                 linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
-                extras[fellow].append(linha)
+                extras[(fellow, p.data)].append(linha)
             else:
                 p.honorario = round(total, 2)
                 p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 100% (sem fellow).'
             p.status_calculo = 'calculado'
 
-    for fellow, linhas in extras.items():
+    for (fellow, data), linhas in extras.items():
         bloco = next((b for b in resultado.blocos
-                      if regras.normalizar(b.profissional) == regras.normalizar(fellow)), None)
+                      if regras.normalizar(b.profissional) == regras.normalizar(fellow)
+                      and b.data == data), None)
         if bloco is None:
             m = Medico.objects.filter(nome=fellow).first()
             bloco = medplus.BlocoMedico(profissional=fellow,
                                         razao_social=(m.razao_social if m else ''))
+            bloco.data = data
             resultado.blocos.append(bloco)
         bloco.procedimentos.extend(linhas)
+
+
+def _resolver_preceptoria(resultado, post):
+    """Adiciona a linha de preceptoria semanal informada pelo usuário na revisão."""
+    for i, bloco in enumerate(list(resultado.blocos)):
+        valor = _num(post.get(f'preceptoria_{i}'))
+        if not valor or valor <= 0:
+            continue
+        linha = medplus.Procedimento(
+            data=bloco.data, data_texto=(bloco.data.strftime('%d/%m/%Y') if bloco.data else ''),
+            paciente='', procedimento='Preceptoria (semanal)', convenio='',
+            quantidade=1, valor=None, honorario_medplus=None,
+            classe=medplus.CLASSE_PRECEPTORIA)
+        linha.honorario = round(valor, 2)
+        linha.status_calculo = 'calculado'
+        linha.motivo_calculo = 'Repasse de preceptoria semanal.'
+        bloco.procedimentos.append(linha)
 
 
 def _resolver_anestesistas(resultado, post):
@@ -326,33 +411,58 @@ def exportar(request):
 
     resultado, aviso = _ler_e_processar(caminho, token)
     _aplicar_edicoes(resultado, request.POST)
+    _resolver_preceptoria(resultado, request.POST)
     _resolver_anestesistas(resultado, request.POST)
     _resolver_cirurgias(resultado, request.POST)
 
-    pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
-    receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE,
-                                        settings.OMIE_CATEGORIA_RECEBER)
-    arquivos = [
-        ('Importação OMIE', pagar.nome_arquivo, pagar.conteudo),
-        ('Importação OMIE', receber.nome_arquivo, receber.conteudo),
-    ]
-    for bloco in resultado.blocos:
-        if not repasse.pagaveis(bloco):
-            continue  # Residentes / sem honorário não geram repasse
-        base = repasse.nome_base(bloco)
-        grupo = f'Repasse — {bloco.profissional}'
-        arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
-        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
-
-    for a in resultado.anestesistas:
-        base = repasse.nome_base_anestesista(a)
-        grupo = f'Anestesista — {a["anestesista"]}'
-        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
-
+    arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
-    pendencias = _resumir_pendencias(pagar.pendencias + receber.pendencias)
+    pendencias = _resumir_pendencias(pend)
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias)
     return render(request, 'repasses/revisao.html', ctx)
+
+
+def _gerar_arquivos_por_dia(resultado):
+    """Gera os arquivos (OMIE + repasses), SEPARADOS por dia quando há mais de um."""
+    from collections import defaultdict
+    blocos_por_dia = defaultdict(list)
+    for bloco in resultado.blocos:
+        blocos_por_dia[bloco.data].append(bloco)
+    anest_por_dia = defaultdict(list)
+    for a in resultado.anestesistas:
+        anest_por_dia[a.get('data')].append(a)
+
+    dias = sorted([d for d in blocos_por_dia if d is not None])
+    if None in blocos_por_dia:
+        dias.append(None)
+    multi = len(dias) > 1
+
+    arquivos, pend = [], []
+    for d in dias:
+        dia_str = d.strftime('%d-%m') if d else 'sem-data'
+        sufixo = f'_{dia_str}' if multi else ''
+        sub = medplus.ResultadoImportacao(unidade=resultado.unidade,
+                                          blocos=blocos_por_dia[d],
+                                          anestesistas=anest_por_dia.get(d, []))
+        pagar = omie.gerar_contas_pagar(sub, settings.OMIE_PAGAR_TEMPLATE)
+        receber = omie.gerar_contas_receber(sub, settings.OMIE_RECEBER_TEMPLATE,
+                                            settings.OMIE_CATEGORIA_RECEBER)
+        gomie = f'Importação OMIE — {dia_str}' if multi else 'Importação OMIE'
+        arquivos.append((gomie, f'OMIE_Contas_a_Pagar{sufixo}.xlsx', pagar.conteudo))
+        arquivos.append((gomie, f'OMIE_Contas_a_Receber{sufixo}.xlsx', receber.conteudo))
+        pend += pagar.pendencias + receber.pendencias
+        for bloco in blocos_por_dia[d]:
+            if not repasse.pagaveis(bloco):
+                continue
+            base = repasse.nome_base(bloco)
+            grupo = f'Repasse — {bloco.profissional}'
+            arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
+            arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
+        for a in anest_por_dia.get(d, []):
+            base = repasse.nome_base_anestesista(a)
+            grupo = f'Anestesista — {a["anestesista"]}'
+            arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
+    return arquivos, pend
 
 
 def baixar_saida(request, pasta, arquivo):
