@@ -35,14 +35,14 @@
     </p>
 
     <div class="grade-modulos">
-        <div class="card-modulo pronto">
+        <a href="{% url 'repasses:medicos' %}" class="card-modulo pronto card-link">
             <div class="card-modulo-topo">
                 <span class="tag tag-pronto">Disponível</span>
             </div>
             <h3>Cadastro de Médicos</h3>
-            <p>Fonte única dos profissionais: dados, CRM, especialidade e situação,
-               com registro de criação e última atualização.</p>
-        </div>
+            <p>Fonte única dos profissionais: categoria, papéis (fellow, anestesista,
+               preceptor), razão social e regra de repasse.</p>
+        </a>
 
         <a href="{% url 'repasses:importar' %}" class="card-modulo pronto card-link">
             <div class="card-modulo-topo">

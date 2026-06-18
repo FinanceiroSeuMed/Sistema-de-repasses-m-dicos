@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}Cadastro de Médicos{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Cadastro de Médicos</h1>
+    <p class="subtitulo-escuro">
+        Fonte única dos profissionais — alimenta as listas de seleção dos repasses
+        (fellows, anestesistas) e o cálculo dos honorários. Para criar ou editar,
+        use a <a href="/admin/repasses/medico/">administração</a>.
+    </p>
+</section>
+
+<section class="cards-indicadores">
+    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Médicos</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_fellows }}</span><span class="rotulo">Fellows</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_anestesistas }}</span><span class="rotulo">Anestesistas</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_preceptores }}</span><span class="rotulo">Preceptores</span></div>
+</section>
+
+{% for rotulo, lista in grupos %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>{{ rotulo }} ({{ lista|length }})</h2></div>
+    <table class="tabela">
+        <thead>
+            <tr>
+                <th>Médico</th>
+                <th>Papéis</th>
+                <th>Razão Social</th>
+                <th>Regra / observação</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in lista %}
+            <tr>
+                <td>{{ m.nome }}</td>
+                <td>
+                    {% if m.eh_fellow %}<span class="badge badge-preceptoria">Fellow</span>{% endif %}
+                    {% if m.eh_preceptor %}<span class="badge badge-taxa">Preceptor</span>{% endif %}
+                    {% if m.eh_anestesista %}<span class="badge badge-cirurgia">Anestesista</span>{% endif %}
+                </td>
+                <td>{{ m.razao_social|default:"—" }}</td>
+                <td>{{ m.regra_obs|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endfor %}
+{% endblock %}

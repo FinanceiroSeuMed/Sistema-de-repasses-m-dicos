@@ -13,7 +13,32 @@ from django.db import models
 class Medico(models.Model):
     """Cadastro central de médicos — a 'fonte única da verdade' dos profissionais."""
 
+    CATEGORIA_RESIDENTE = 'residente'
+    CATEGORIA_FELLOW = 'fellow'
+    CATEGORIA_PRECEPTOR = 'preceptor'
+    CATEGORIA_ANESTESISTA = 'anestesista'
+    CATEGORIA_MEDICO = 'medico'
+    CATEGORIA_CHOICES = [
+        (CATEGORIA_MEDICO, 'Médico / Outros'),
+        (CATEGORIA_FELLOW, 'Fellow'),
+        (CATEGORIA_RESIDENTE, 'Residente'),
+        (CATEGORIA_PRECEPTOR, 'Preceptor'),
+        (CATEGORIA_ANESTESISTA, 'Anestesista'),
+    ]
+
     nome = models.CharField('Nome completo', max_length=200)
+    categoria = models.CharField('Categoria', max_length=20, choices=CATEGORIA_CHOICES,
+                                 default=CATEGORIA_MEDICO)
+    razao_social = models.CharField('Razão Social', max_length=200, blank=True,
+                                    help_text='Usada como Fornecedor/Cliente na OMIE.')
+    regra_obs = models.CharField('Regra / observação da planilha', max_length=255, blank=True,
+                                 help_text='Ex.: "R$ 800,00 /semana", "Não recebem em catarata".')
+
+    # Papéis (um médico pode acumular): alimentam as listas de seleção das cirurgias
+    eh_fellow = models.BooleanField('É fellow?', default=False)
+    eh_preceptor = models.BooleanField('É preceptor?', default=False)
+    eh_anestesista = models.BooleanField('É anestesista?', default=False)
+
     cpf = models.CharField('CPF', max_length=14, unique=True, blank=True, null=True)
     crm = models.CharField('CRM', max_length=20, blank=True)
     uf_crm = models.CharField('UF do CRM', max_length=2, blank=True)

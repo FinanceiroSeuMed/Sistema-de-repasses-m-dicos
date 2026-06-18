@@ -21,6 +21,24 @@ def home(request):
     return render(request, 'repasses/home.html', contexto)
 
 
+def medicos(request):
+    """Cadastro central de médicos, agrupado por categoria."""
+    todos = Medico.objects.all()
+    grupos = []
+    for codigo, rotulo in Medico.CATEGORIA_CHOICES:
+        qs = [m for m in todos if m.categoria == codigo]
+        if qs:
+            grupos.append((rotulo, qs))
+    contexto = {
+        'grupos': grupos,
+        'total': len(todos),
+        'total_fellows': sum(1 for m in todos if m.eh_fellow),
+        'total_anestesistas': sum(1 for m in todos if m.eh_anestesista),
+        'total_preceptores': sum(1 for m in todos if m.eh_preceptor),
+    }
+    return render(request, 'repasses/medicos.html', contexto)
+
+
 def _resumir_pendencias(itens):
     """Agrupa pendências repetidas em 'Nx mensagem'."""
     contagem = Counter(itens)
