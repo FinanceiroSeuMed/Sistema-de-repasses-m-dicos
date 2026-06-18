@@ -64,8 +64,28 @@ def _caminho_upload(token: str):
     return caminho
 
 
+_RE_SUFIXO_CADASTRO = re.compile(r'\s*\([^)]*\)\s*$')
+
+
+def _unificar_medicos(resultado):
+    """Une blocos do mesmo médico com cadastros MedPlus diferentes — ex.:
+    'Dra. Tharcila (PR2)' e 'Dra. Tharcila (Geral)' são a mesma pessoa."""
+    canonicos = {}
+    novos = []
+    for bloco in resultado.blocos:
+        nome = _RE_SUFIXO_CADASTRO.sub('', bloco.profissional).strip()
+        if nome in canonicos:
+            canonicos[nome].procedimentos.extend(bloco.procedimentos)
+        else:
+            bloco.profissional = nome
+            canonicos[nome] = bloco
+            novos.append(bloco)
+    resultado.blocos = novos
+
+
 def _ler_e_processar(caminho, nome=''):
     resultado = medplus.ler_relatorio(str(caminho), nome)
+    _unificar_medicos(resultado)
     livro = regras.carregar_livro_padrao()
     aviso = None
     if livro is None:
@@ -218,7 +238,7 @@ def importar(request):
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None):
     cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
-                 if p.classe == medplus.CLASSE_CIRURGIA]
+                 if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
     return {
         'resultado': resultado,
         'token': token,

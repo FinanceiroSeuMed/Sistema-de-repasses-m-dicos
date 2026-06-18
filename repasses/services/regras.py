@@ -56,6 +56,9 @@ NEGATIVO = 'negativo'        # "-" -> não recebe
 
 _PAGADORES = ('particular', 'convenio', 'sus', 'oci', 'cisa')
 
+# Convênios que devem ser tratados como Particular no cálculo do honorário.
+_CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica')
+
 # palavras pouco informativas, ignoradas no casamento
 _STOP = {'a', 'o', 'de', 'da', 'do', 'com', 'e', 'c', 'em', 'por', '-', 'ao', 'mono'}
 
@@ -281,7 +284,8 @@ def mapear_convenio(convenio: str) -> str | None:
         return 'cisa'
     if 'sus' in n or n.startswith('pg'):
         return 'sus'
-    if 'particular' in n:
+    # Bradesco, Parcerias (I/II/III/Óticas), Desconto etc. -> tratados como Particular
+    if 'particular' in n or any(k in n for k in _CONVENIOS_COMO_PARTICULAR):
         return 'particular'
     if 'conven' in n:
         return 'convenio'
@@ -324,13 +328,16 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
 
     tokens_proc = _tokens(procedimento)
     eh_catarata = ('catarata' in tokens_proc)
+    # "faco" (abreviação) ou catarata: usado para a regra do fellow, mesmo quando
+    # o procedimento é uma consulta/tono relacionada a faco.
+    tem_faco = eh_catarata or ('faco' in tokens_proc)
 
-    # Regra por categoria do médico
+    # Regra por categoria do médico (verificada ANTES do casamento)
     m = livro.medico_por_nome(medico) if medico else None
     if m and 'residente' in m.categoria.lower():
         return ResultadoCalculo(NAO_RECEBE, 0.0, motivo='Residente — não recebe honorário.')
-    if m and 'fellow' in m.categoria.lower() and eh_catarata:
-        return ResultadoCalculo(NAO_RECEBE, 0.0, motivo='Fellow — não recebe em catarata.')
+    if m and 'fellow' in m.categoria.lower() and tem_faco:
+        return ResultadoCalculo(NAO_RECEBE, 0.0, motivo='Fellow — não recebe em catarata/faco.')
 
     # Catarata: SUS/CISA têm valor fixo por médico; particular vai para a etapa de cirurgia
     if eh_catarata:

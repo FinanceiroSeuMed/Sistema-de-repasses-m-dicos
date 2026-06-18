@@ -91,7 +91,8 @@ class BlocoMedico:
 
     @property
     def total_registros(self) -> int:
-        return len(self.procedimentos)
+        # não conta componentes de cirurgia (anestesista/hospital) duplicados
+        return sum(1 for p in self.procedimentos if p.status_calculo != 'componente')
 
     @property
     def resumo_classes(self) -> list[tuple[str, int]]:
