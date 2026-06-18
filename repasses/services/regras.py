@@ -62,6 +62,8 @@ _OVERRIDES = {
 _EXTRA_REGRAS = [
     ('Sutura de Conjuntiva', 'Cirurgias e Procedimentos',
      {'particular': 0.24, 'cisa': 0.24, 'sus': 0.24}),
+    # Consulta pediátrica / criança / estrabismo = R$ 120 (particular)
+    ('Consulta Pediátrica', 'Exames e Consultas', {'particular': 120}),
 ]
 
 # Tipos de valor de uma regra

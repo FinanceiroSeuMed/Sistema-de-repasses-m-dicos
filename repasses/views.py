@@ -120,7 +120,8 @@ def _unificar_medicos(resultado):
 def _ler_e_processar(caminho, nome=''):
     resultado = medplus.ler_relatorio(str(caminho), nome)
     _filtrar_blocos(resultado)
-    _unificar_medicos(resultado)
+    # NÃO unificamos filiais (GERAL/PR2/PR3): cada filial gera seu próprio repasse;
+    # o agrupamento por razão social acontece só na OMIE a pagar.
     _separar_por_dia(resultado)
     livro = regras.carregar_livro_padrao()
     aviso = None
