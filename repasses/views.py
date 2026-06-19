@@ -857,8 +857,8 @@ def correcao_remover(request, pk):
 
 # --- Regras de repasse (geridas no sistema) -----------------------------------
 
-def regras_lista(request):
-    """Mostra as regras de honorário (antes só na planilha; agora no sistema)."""
+def regras_lista(request, info=None):
+    """Consulta de preços / regras de honorário — listadas e editáveis aqui."""
     todas = list(RegraRepasse.objects.all())
     grupos = []
     for classe, _rotulo in RegraRepasse.CLASSE_CHOICES:
@@ -869,4 +869,33 @@ def regras_lista(request):
         'grupos': grupos,
         'total': len(todas),
         'ativas': sum(1 for r in todas if r.ativo),
+        'info': info,
     })
+
+
+_CAMPOS_REGRA = ['val_particular', 'val_convenio', 'val_sus', 'val_oci', 'val_cisa']
+
+
+def regras_salvar(request):
+    """Salva as edições de valor feitas direto na página de preços/regras."""
+    if request.method != 'POST':
+        raise Http404()
+    alteradas = 0
+    for r in RegraRepasse.objects.all():
+        if f'presente_{r.id}' not in request.POST:
+            continue  # regra não estava no formulário enviado — não mexe
+        mudou = False
+        for campo in _CAMPOS_REGRA:
+            novo = (request.POST.get(f'{campo}_{r.id}') or '').strip()
+            if novo != (getattr(r, campo) or ''):
+                setattr(r, campo, novo)
+                mudou = True
+        ativo = f'ativo_{r.id}' in request.POST
+        if ativo != r.ativo:
+            r.ativo = ativo
+            mudou = True
+        if mudou:
+            r.save()
+            alteradas += 1
+    return regras_lista(request, info=(f'✓ {alteradas} regra(s) atualizada(s) — já valem para os próximos cálculos.'
+                                       if alteradas else 'Nada alterado.'))

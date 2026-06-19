@@ -247,6 +247,10 @@ body {
 .subgrupo td { background: #f2f6fb; padding-top: 7px; padding-bottom: 7px; }
 .subgrupo:hover td { background: #f2f6fb; }
 .bloco-anestesista { border-left: 3px solid #0b5fa5; padding-left: 14px; }
+.inp-regra { width: 78px; text-align: right; padding: 4px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; font-size: 13px; }
+.inp-regra:focus { outline: none; border-color: var(--azul); }
+.col-destaque { background: #eef6ff; }
+.tabela-regras th.col-destaque { background: #dceaf7; }
 .lista-auditoria { margin: 4px 0 0; padding-left: 20px; }
 .lista-auditoria li { font-size: 13px; color: var(--texto-suave); margin: 3px 0; }
 .linha-inativa { opacity: .5; }
