@@ -35,7 +35,9 @@
         <h4>{{ g.grouper }}</h4>
         <div class="saidas-botoes">
             {% for d in g.list %}
-            {% if d.existe %}
+            {% if d.no_banco %}
+            <a class="botao botao-download" href="{% url 'repasses:baixar_lote' lote.id d.arquivo %}">⬇ {{ d.arquivo }}</a>
+            {% elif d.existe %}
             <a class="botao botao-download" href="{% url 'repasses:baixar_saida' lote.pasta_saida d.arquivo %}">⬇ {{ d.arquivo }}</a>
             {% else %}
             <span class="botao botao-secundario-escuro" title="arquivo não encontrado">✖ {{ d.arquivo }}</span>

@@ -1,3 +1,4 @@
+import io
 import re
 from collections import Counter
 from datetime import datetime
@@ -9,7 +10,8 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import CorrecaoMemorizada, Lote, Medico, RegraRepasse, Repasse, RepasseRascunho
+from .models import (ArquivoSaida, CorrecaoMemorizada, Lote, Medico, RegraRepasse,
+                     Repasse, RepasseRascunho)
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -599,6 +601,7 @@ def exportar(request):
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
     avisos_dup = _registrar_lote(request, token, resultado, dados, pasta_saida, downloads)
+    _guardar_arquivos_no_banco(token, arquivos)        # re-download não depende da pasta saídas/
     pendencias = _resumir_pendencias(pend)
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
                        info=info, edicoes=dados, avisos=avisos_dup)
@@ -672,6 +675,27 @@ def baixar_saida(request, pasta, arquivo):
     if base not in caminho.parents or not caminho.is_file():
         raise Http404('Arquivo não encontrado.')
     return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=arquivo)
+
+
+def _guardar_arquivos_no_banco(token, arquivos):
+    """Guarda os bytes dos arquivos gerados no banco, ligados ao lote do token, para
+    re-download mesmo se a pasta saídas/ for limpa. Re-export substitui."""
+    lote = Lote.objects.filter(token=token).first()
+    if not lote:
+        return
+    lote.arquivos.all().delete()
+    ArquivoSaida.objects.bulk_create([
+        ArquivoSaida(lote=lote, grupo=g, nome=n, conteudo=conteudo)
+        for (g, n, conteudo) in arquivos
+    ])
+
+
+def baixar_lote(request, pk, nome):
+    """Re-download de um arquivo do histórico — servido do BANCO (independe do disco)."""
+    arq = ArquivoSaida.objects.filter(lote_id=pk, nome=nome).first()
+    if arq is None:
+        raise Http404('Arquivo não encontrado.')
+    return FileResponse(io.BytesIO(bytes(arq.conteudo)), as_attachment=True, filename=nome)
 
 
 # --- Histórico de lotes + auditoria -------------------------------------------
@@ -812,12 +836,22 @@ def lotes_lista(request):
 def lote_detalhe(request, pk):
     """Detalhe de um lote: re-baixar os arquivos, status dos repasses, auditoria."""
     lote = get_object_or_404(Lote, pk=pk)
-    base = Path(settings.SAIDAS_DIR) / lote.pasta_saida
-    downloads = [dict(d, existe=(base / d['arquivo']).is_file()) for d in lote.downloads]
+    db_arqs = list(lote.arquivos.all())
+    if db_arqs:
+        # Servidos do BANCO — sempre disponíveis (independe da pasta saídas/).
+        downloads = [{'grupo': a.grupo, 'arquivo': a.nome, 'existe': True, 'no_banco': True}
+                     for a in db_arqs]
+        algum_sumiu = False
+    else:
+        # Lotes antigos (antes do arquivo-no-banco): cai para o disco.
+        base = Path(settings.SAIDAS_DIR) / lote.pasta_saida
+        downloads = [dict(d, existe=(base / d['arquivo']).is_file(), no_banco=False)
+                     for d in lote.downloads]
+        algum_sumiu = any(not d['existe'] for d in downloads)
     return render(request, 'repasses/lote_detalhe.html', {
         'lote': lote,
         'downloads': downloads,
-        'algum_sumiu': any(not d['existe'] for d in downloads),
+        'algum_sumiu': algum_sumiu,
         'repasses': list(lote.repasses.all()),
         'status_choices': Repasse.STATUS_CHOICES,
     })

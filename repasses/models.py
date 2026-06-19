@@ -242,6 +242,24 @@ class Lote(models.Model):
         return f'Lote {self.id} — {self.arquivo_nome or self.token} ({self.criado_em:%d/%m/%Y})'
 
 
+class ArquivoSaida(models.Model):
+    """Bytes de um arquivo gerado, guardados NO BANCO para re-download mesmo que a
+    pasta de saídas seja limpa — recuperabilidade do histórico (auditoria)."""
+
+    lote = models.ForeignKey(Lote, on_delete=models.CASCADE, related_name='arquivos')
+    grupo = models.CharField('Grupo', max_length=120, blank=True)
+    nome = models.CharField('Arquivo', max_length=200)
+    conteudo = models.BinaryField('Conteúdo')
+
+    class Meta:
+        verbose_name = 'Arquivo gerado'
+        verbose_name_plural = 'Arquivos gerados'
+        ordering = ['id']
+
+    def __str__(self):
+        return self.nome
+
+
 class Repasse(models.Model):
     """Um repasse individual (médico/dia/clínica) com seu andamento de pagamento.
 

@@ -74,6 +74,14 @@ def _total(bloco) -> float:
     return round(sum(p.honorario for p in pagaveis(bloco)), 2)
 
 
+def _ajuste_arredondamento(bloco) -> float:
+    """Diferença entre o Total (soma em precisão cheia, arredondada — igual à
+    OMIE) e a soma das linhas exibidas com 2 casas. Vira uma linha
+    "Arredondamento" para o documento de conferência fechar centavo a centavo."""
+    soma_exibida = round(sum(round(p.honorario or 0, 2) for p in pagaveis(bloco)), 2)
+    return round(_total(bloco) - soma_exibida, 2)
+
+
 # --- Excel (arquivo interno) --------------------------------------------------
 
 def gerar_excel(bloco, unidade: str) -> bytes:
@@ -115,8 +123,16 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         ws.cell(linha, 3, p.procedimento)
         ws.cell(linha, 4, p.convenio)
         ws.cell(linha, 5, p.quantidade)
-        cel_h = ws.cell(linha, 6, p.honorario)
+        # valor já em 2 casas para a coluna fechar com o Total na conferência
+        cel_h = ws.cell(linha, 6, round(p.honorario or 0, 2))
         cel_h.number_format = 'R$ #,##0.00'
+        linha += 1
+
+    ajuste = _ajuste_arredondamento(bloco)
+    if ajuste:
+        ws.cell(linha, 5, 'Arredondamento')
+        cel_aj = ws.cell(linha, 6, ajuste)
+        cel_aj.number_format = 'R$ #,##0.00'
         linha += 1
 
     ws.cell(linha, 5, 'Total').font = negrito
@@ -174,6 +190,9 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
             str(p.quantidade),
             moeda(p.honorario),
         ])
+    ajuste = _ajuste_arredondamento(bloco)
+    if ajuste:
+        dados.append(['', '', '', 'Arredondamento', moeda(ajuste)])
     dados.append(['', '', '', 'Total', moeda(_total(bloco))])
 
     tabela = Table(dados, colWidths=[22 * mm, 78 * mm, 30 * mm, 12 * mm, 28 * mm], repeatRows=1)
