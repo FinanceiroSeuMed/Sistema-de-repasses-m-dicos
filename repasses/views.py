@@ -320,7 +320,10 @@ def _resolver_anestesistas(resultado, post):
         pacientes = _num(post.get(f'anest_pac_{i}'))
         valor = regras.valor_anestesista(nome, horas, pacientes)
         m = Medico.objects.filter(nome=nome).first()
-        cirurgias = [p for p in bloco.procedimentos if p.classe == medplus.CLASSE_CIRURGIA]
+        # Só as CIRURGIAS de fato entram no repasse do anestesista (não os
+        # procedimentos de consultório como YAG/laser).
+        cirurgias = [p for p in bloco.procedimentos
+                     if p.classe == medplus.CLASSE_CIRURGIA and medplus.eh_cirurgia(p.procedimento)]
         datas = [p.data for p in cirurgias if p.data]
         resultado.anestesistas.append({
             'anestesista': nome,

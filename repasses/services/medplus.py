@@ -115,7 +115,9 @@ class BlocoMedico:
 
     @property
     def tem_cirurgia(self) -> bool:
-        return any(p.classe == CLASSE_CIRURGIA for p in self.procedimentos)
+        """Só cirurgias de fato (não procedimentos de consultório) ativam o anestesista."""
+        return any(p.classe == CLASSE_CIRURGIA and eh_cirurgia(p.procedimento)
+                   for p in self.procedimentos)
 
     @property
     def qtd_a_definir(self) -> int:
@@ -202,6 +204,26 @@ def _para_data(valor):
         except ValueError:
             return None, texto
     return None, texto
+
+
+# Procedimentos da classe "Cirurgias e Procedimentos" que são CIRURGIAS de fato
+# (precisam de anestesista). Os de consultório (YAG/laser/capsulotomia/iridotomia)
+# NÃO entram no repasse do anestesista.
+_CIRURGIAS_ANESTESIA = (
+    'facoemulsificacao', 'facectomia', 'catarata', 'vitrectomia', 'blefaroplastia',
+    'ptose', 'entropio', 'ectropio', 'pterigio', 'transplante', 'injecao', 'intravitrea',
+    'trabeculectomia', 'reconstrucao', 'tumor', 'exerese', 'cantoplastia', 'sondagem',
+    'recobrimento', 'enucleacao', 'evisceracao', 'calazio', 'cirurgia',
+)
+
+
+def eh_cirurgia(procedimento: str) -> bool:
+    """True se o procedimento é uma CIRURGIA (precisa de anestesista), distinguindo
+    das de consultório (YAG/laser, capsulotomia/iridotomia a laser)."""
+    n = _norm(procedimento)
+    if any(k in n for k in ('yag', 'laser')):
+        return False
+    return any(k in n for k in _CIRURGIAS_ANESTESIA)
 
 
 def classificar(procedimento: str, convenio: str = '') -> str:
