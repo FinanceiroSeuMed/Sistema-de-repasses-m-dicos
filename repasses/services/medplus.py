@@ -55,6 +55,7 @@ _ROTULOS = {
     'honorario': ('honorario',),
     'convenio': ('convenio',),
     'qtd': ('qtd', 'quantidade'),
+    'clinica': ('nome da clinica', 'clinica', 'nome clinica', 'unidade', 'filial'),
 }
 
 _RE_DATA = re.compile(r'^\s*(\d{2})/(\d{2})/(\d{4})\s*$')
@@ -73,6 +74,7 @@ class Procedimento:
     valor: float | None              # valor bruto (só existe no relatório completo)
     honorario_medplus: float | None  # honorário que veio da MedPlus (referência)
     classe: str = CLASSE_INDEFINIDA
+    clinica: str = ''                # filial / "Nome da Clínica"
     # Preenchidos pelo motor de cálculo (regras.py)
     honorario: float | None = None   # honorário recalculado pelas regras
     status_calculo: str = ''         # calculado / nao_recebe / a_definir
@@ -132,6 +134,7 @@ class BlocoMedico:
     lembrete: str = ''
     razao_social: str = ''
     data: date | None = None          # dia do bloco (após separar por dia)
+    clinica: str = ''                 # filial do bloco (após separar por clínica)
     preceptoria_valor: float | None = None  # valor de preceptoria semanal sugerido
 
 
@@ -334,6 +337,7 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
             quantidade=int(qtd) if qtd else 1,
             valor=_para_numero(_v('valor')),
             honorario_medplus=_para_numero(_v('honorario')),
+            clinica=_texto(_v('clinica')),
         )
         proc.classe = classificar(procedimento, proc.convenio)
         bloco_atual.procedimentos.append(proc)

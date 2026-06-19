@@ -141,19 +141,22 @@ def _ler_e_processar(caminho, nome=''):
 
 
 def _separar_por_dia(resultado):
-    """Quebra cada bloco (médico) em um bloco por DIA de atendimento."""
+    """Quebra cada bloco (médico) em um bloco por (DIA, CLÍNICA/filial)."""
     novos = []
     for bloco in resultado.blocos:
-        por_data = {}
+        grupos = {}
         for p in bloco.procedimentos:
-            por_data.setdefault(p.data, []).append(p)
-        datas = sorted([d for d in por_data if d is not None])
-        if None in por_data:
-            datas.append(None)
-        for d in datas:
+            grupos.setdefault((p.data, p.clinica), []).append(p)
+
+        def _chave(k):
+            d, c = k
+            return (d or __import__('datetime').date.max, c)
+
+        for (d, c) in sorted(grupos, key=_chave):
             nb = medplus.BlocoMedico(profissional=bloco.profissional)
             nb.data = d
-            nb.procedimentos = por_data[d]
+            nb.clinica = c
+            nb.procedimentos = grupos[(d, c)]
             novos.append(nb)
     resultado.blocos = novos
 

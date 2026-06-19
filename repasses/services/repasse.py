@@ -38,11 +38,16 @@ def _data_bloco(bloco):
 
 
 def nome_base(bloco) -> str:
-    """Ex.: 'Dr. Heric Sakamoto 16-06' (sem caracteres inválidos em arquivo)."""
+    """Ex.: 'Dr. Heric Sakamoto 16-06' ou 'Dr. Carlos 08-05 - Paiçandu'."""
     nome = _INVALIDO.sub('', bloco.profissional).strip().rstrip('.').strip()
     data_ref = _data_bloco(bloco)
     dia = data_ref.strftime('%d-%m') if data_ref else 'sem-data'
-    return f'{nome} {dia}'.strip()
+    base = f'{nome} {dia}'.strip()
+    clin = (getattr(bloco, 'clinica', '') or '').strip()
+    if clin:
+        curta = clin.split(' - ')[-1] if ' - ' in clin else clin
+        base += f' - {_INVALIDO.sub("", curta).strip()}'
+    return base
 
 
 def _limpar_nome(nome) -> str:
