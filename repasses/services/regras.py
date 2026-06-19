@@ -64,6 +64,10 @@ _EXTRA_REGRAS = [
      {'particular': 0.24, 'cisa': 0.24, 'sus': 0.24}),
     # Consulta pediátrica / criança / estrabismo = R$ 120 (particular)
     ('Consulta Pediátrica', 'Exames e Consultas', {'particular': 120}),
+    # Vitrectomia posterior COM INFUSÃO (de perfluorocarbono) = R$ 1.120 (variante
+    # mais complexa; a "Vitrectomia Posterior" simples segue R$ 1.000).
+    ('Vitrectomia Posterior com Infusão', 'Cirurgias e Procedimentos',
+     {'cisa': 1120, 'sus': 1120}),
 ]
 
 # Tipos de valor de uma regra
