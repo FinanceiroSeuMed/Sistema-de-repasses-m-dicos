@@ -276,6 +276,16 @@ def carregar_regras(caminho) -> LivroRegras:
     return livro
 
 
+def _valor_consulta(livro: LivroRegras, pagador: str):
+    """Valor fixo da Consulta para o pagador (para somar à faco que inclui consulta)."""
+    for regra in livro.procedimentos:
+        if regra.nome_norm == 'consulta':
+            tipo, val = _classificar_valor(regra.valores.get(pagador))
+            if tipo == FIXO:
+                return val
+    return None
+
+
 def _valor_catarata(livro: LivroRegras, medico_nome: str, pagador: str):
     """Valor fixo de catarata para o médico (regras 'Cirurgia de Catarata - X').
 
@@ -367,6 +377,16 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
         if pagador in ('sus', 'cisa'):
             val, tipo = _valor_catarata(livro, medico, pagador)
             if tipo == FIXO:
+                # Faco que INCLUI consulta pré-operatória (nome traz "Incluso: ... Consulta"):
+                # repasse = faco base do médico (SUS) + consulta do convênio.
+                if 'consulta' in normalizar(procedimento):
+                    base, tbase = _valor_catarata(livro, medico, 'sus')
+                    cons = _valor_consulta(livro, pagador)
+                    if tbase == FIXO and cons is not None:
+                        return ResultadoCalculo(
+                            CALCULADO, round(base + cons, 2),
+                            motivo=f'Faco {base:.0f} + consulta inclusa {cons:.0f} = {base+cons:.0f}.',
+                            regra='Cirurgia de Catarata (com consulta)', tipo=FIXO)
                 return ResultadoCalculo(CALCULADO, round(val, 2),
                                         motivo=f'Catarata {pagador.upper()} (valor fixo do médico).',
                                         regra='Cirurgia de Catarata', tipo=FIXO)
