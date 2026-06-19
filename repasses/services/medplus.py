@@ -67,6 +67,7 @@ _ROTULOS = {
     'convenio': ('convenio',),
     'qtd': ('qtd', 'quantidade'),
     'clinica': ('nome da clinica', 'clinica', 'nome clinica', 'unidade', 'filial'),
+    'hora': ('hora agend', 'horario', 'hora'),
 }
 
 _RE_DATA = re.compile(r'^\s*(\d{2})/(\d{2})/(\d{4})\s*$')
@@ -86,6 +87,7 @@ class Procedimento:
     honorario_medplus: float | None  # honorário que veio da MedPlus (referência)
     classe: str = CLASSE_INDEFINIDA
     clinica: str = ''                # filial / "Nome da Clínica"
+    hora: str = ''                   # "Hora Agend." — só para o preview (ajuda a achar o anestesista)
     # Preenchidos pelo motor de cálculo (regras.py)
     honorario: float | None = None   # honorário recalculado pelas regras
     status_calculo: str = ''         # calculado / nao_recebe / a_definir
@@ -401,6 +403,7 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
             valor=_para_numero(_v('valor')),
             honorario_medplus=_para_numero(_v('honorario')),
             clinica=_texto(_v('clinica')),
+            hora=_texto(_v('hora')),
         )
         proc.classe = classificar(procedimento, proc.convenio)
         bloco_atual.procedimentos.append(proc)

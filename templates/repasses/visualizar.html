@@ -53,15 +53,16 @@
     </div>
     <table class="tabela">
         <thead>
-            <tr><th>Data</th><th>Procedimento</th><th>Convênio</th><th class="num">Qtd.</th><th class="num">Honorário</th></tr>
+            <tr><th>Data</th><th>Hora</th><th>Procedimento</th><th>Convênio</th><th class="num">Qtd.</th><th class="num">Honorário</th></tr>
         </thead>
         <tbody>
             {% for grupo, linhas in bloco.linhas_agrupadas %}
-            <tr class="subgrupo"><td colspan="5"><span class="badge badge-{{ grupo|slug_subclasse }}">{{ grupo }}</span> <small>({{ linhas|length }})</small></td></tr>
+            <tr class="subgrupo"><td colspan="6"><span class="badge badge-{{ grupo|slug_subclasse }}">{{ grupo }}</span> <small>({{ linhas|length }})</small></td></tr>
             {% for p in linhas %}
             {% if p.status_calculo == 'calculado' and p.honorario %}
             <tr>
                 <td>{{ p.data_texto }}</td>
+                <td>{{ p.hora }}</td>
                 <td>{{ p.procedimento }}</td>
                 <td>{{ p.convenio }}</td>
                 <td class="num">{{ p.quantidade }}</td>
@@ -72,7 +73,7 @@
             {% endfor %}
         </tbody>
         <tfoot>
-            <tr><td colspan="4" class="num"><strong>Total a pagar</strong></td><td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td></tr>
+            <tr><td colspan="5" class="num"><strong>Total a pagar</strong></td><td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td></tr>
         </tfoot>
     </table>
 </section>
