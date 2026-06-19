@@ -7,7 +7,11 @@ integrações com MedPlus e OMIE) serão adicionados conforme recebermos os
 modelos de relatório e de importação.
 """
 
+import re
+
 from django.db import models
+
+_RE_SUFIXO = re.compile(r'\s*\([^)]*\)\s*$')
 
 
 class Medico(models.Model):
@@ -61,3 +65,70 @@ class Medico(models.Model):
         if self.crm:
             return f'{self.nome} (CRM {self.crm}/{self.uf_crm})'
         return self.nome
+
+
+class CorrecaoMemorizada(models.Model):
+    """Ajuste manual que o sistema memoriza para reaplicar nos próximos meses.
+
+    É o coração da "gestão da informação": quando a diretoria corrige um valor na
+    revisão e marca "memorizar", o ajuste deixa de viver na cabeça de alguém e
+    passa a ser a fonte única — reaplicado automaticamente quando o mesmo
+    procedimento/convênio aparecer de novo, sem ninguém precisar refazer.
+
+    Casamento por (procedimento, convênio, médico) já normalizados. Convênio ou
+    médico em branco = vale para qualquer convênio / qualquer médico; a busca
+    prefere sempre a regra mais específica.
+    """
+
+    TIPO_FIXO = 'fixo'
+    TIPO_PERCENTUAL = 'percentual'
+    TIPO_CHOICES = [
+        (TIPO_FIXO, 'Valor fixo (R$)'),
+        (TIPO_PERCENTUAL, 'Percentual do valor bruto'),
+    ]
+
+    procedimento = models.CharField('Procedimento', max_length=255)
+    proc_norm = models.CharField(max_length=255, editable=False, db_index=True)
+    convenio = models.CharField('Convênio', max_length=120, blank=True,
+                                help_text='Em branco = vale para qualquer convênio.')
+    conv_norm = models.CharField(max_length=120, blank=True, editable=False, db_index=True)
+    medico = models.CharField('Médico', max_length=200, blank=True,
+                              help_text='Em branco = vale para qualquer médico.')
+    medico_norm = models.CharField(max_length=200, blank=True, editable=False, db_index=True)
+
+    tipo = models.CharField('Tipo', max_length=12, choices=TIPO_CHOICES, default=TIPO_FIXO)
+    valor = models.DecimalField('Valor', max_digits=12, decimal_places=4,
+                                help_text='Fixo: em Reais. Percentual: fração (ex.: 0,24 = 24%).')
+
+    ativo = models.BooleanField('Ativa', default=True)
+    origem = models.CharField('Origem', max_length=200, blank=True,
+                              help_text='De onde veio (ex.: arquivo do lote que originou).')
+    observacao = models.CharField('Observação', max_length=255, blank=True)
+
+    criado_em = models.DateTimeField('Criada em', auto_now_add=True)
+    atualizado_em = models.DateTimeField('Atualizada em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Correção memorizada'
+        verbose_name_plural = 'Correções memorizadas'
+        ordering = ['procedimento', 'convenio', 'medico']
+        unique_together = [('proc_norm', 'conv_norm', 'medico_norm')]
+
+    def save(self, *args, **kwargs):
+        # Mantém os campos normalizados em sincronia com os textos (inclusive no admin).
+        from .services.regras import normalizar
+        self.proc_norm = normalizar(self.procedimento)
+        self.conv_norm = normalizar(self.convenio)
+        self.medico_norm = normalizar(_RE_SUFIXO.sub('', self.medico or ''))
+        super().save(*args, **kwargs)
+
+    @property
+    def valor_legivel(self):
+        if self.tipo == self.TIPO_PERCENTUAL:
+            return f'{float(self.valor) * 100:.2f}%'.replace('.', ',') + ' do bruto'
+        v = f'{float(self.valor):,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.')
+        return f'R$ {v}'
+
+    def __str__(self):
+        alvo = self.convenio or 'qualquer convênio'
+        return f'{self.procedimento} / {alvo}'

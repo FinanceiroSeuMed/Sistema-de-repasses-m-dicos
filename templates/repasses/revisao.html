@@ -21,6 +21,8 @@
 </section>
 {% endif %}
 
+{% for msg in info %}<div class="alerta alerta-ok">{{ msg }}</div>{% endfor %}
+
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
 <section class="resumo-importacao">
@@ -141,9 +143,12 @@
                                value="{{ p.honorario|valor2 }}" placeholder="—"
                                data-exato="{{ p.honorario|valor_exato }}"
                                title="{{ p.motivo_calculo }}">
+                        <label class="memo" title="Salvar este valor para '{{ p.procedimento }}' / {{ p.convenio|default:'qualquer convênio' }} e reaplicar nos próximos meses">
+                            <input type="checkbox" name="memorizar_{{ p.idx }}" value="1"> memorizar
+                        </label>
                         {% endif %}
                     </td>
-                    <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span></td>
+                    <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span>{% if 'memorizada' in p.motivo_calculo %} <span class="badge badge-memo" title="{{ p.motivo_calculo }}">memorizado</span>{% endif %}</td>
                     <td>
                         {% if p.status_calculo == 'catarata' %}
                         <select class="inp-classe" name="cat_fellow_{{ p.idx }}">

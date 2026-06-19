@@ -6,11 +6,11 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.http import FileResponse, Http404
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import Medico
-from .services import medplus, omie, regras, repasse
+from .models import CorrecaoMemorizada, Medico
+from .services import correcoes, medplus, omie, regras, repasse
 
 
 def home(request):
@@ -130,6 +130,8 @@ def _ler_e_processar(caminho, nome=''):
                  '"a definir". Confira REGRAS_REPASSE_PATH.')
     else:
         regras.processar(resultado, livro)
+        # Correções memorizadas: reaplicam ajustes manuais salvos em meses anteriores
+        correcoes.aplicar(resultado)
         # Residentes não recebem -> não aparecem no preview nem na exportação
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
@@ -401,7 +403,7 @@ def importar(request):
     return render(request, 'repasses/importar.html', {'form': form, 'erro': erro})
 
 
-def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None):
+def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None, info=None):
     cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
                  if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
     return {
@@ -409,6 +411,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'token': token,
         'aviso_regras': aviso,
         'pendencias': pendencias if pendencias is not None else _pendencias_revisao(resultado),
+        'info': info or [],
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
         'qtd_cirurgias': len(cirurgias),
@@ -430,6 +433,7 @@ def exportar(request):
 
     resultado, aviso = _ler_e_processar(caminho, token)
     _aplicar_edicoes(resultado, request.POST)
+    info = _memorizar_correcoes(resultado, request.POST)
     _resolver_preceptoria(resultado, request.POST)
     _resolver_anestesistas(resultado, request.POST)
     _resolver_cirurgias(resultado, request.POST)
@@ -437,8 +441,32 @@ def exportar(request):
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
     pendencias = _resumir_pendencias(pend)
-    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias)
+    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias, info)
     return render(request, 'repasses/revisao.html', ctx)
+
+
+def _memorizar_correcoes(resultado, post):
+    """Salva como correção memorizada cada linha marcada 'memorizar' na revisão.
+
+    Fica valendo para qualquer médico (a regra é por procedimento/convênio); a
+    origem registra de qual médico/lote veio. Devolve mensagens informativas."""
+    salvos = 0
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            if post.get(f'memorizar_{p.idx}') != '1':
+                continue
+            if p.honorario is None or p.honorario <= 0:
+                continue
+            correcoes.memorizar(
+                p.procedimento, p.convenio, round(float(p.honorario), 2),
+                origem=(resultado.unidade or '')[:180],
+                observacao=f'{bloco.profissional} {p.data_texto}'.strip())
+            salvos += 1
+    if not salvos:
+        return []
+    plural = 'correção memorizada' if salvos == 1 else 'correções memorizadas'
+    return [f'✓ {salvos} {plural} — serão reaplicadas automaticamente nos próximos meses. '
+            'Veja em "Correções memorizadas".']
 
 
 def _gerar_arquivos_por_dia(resultado):
@@ -482,3 +510,31 @@ def baixar_saida(request, pasta, arquivo):
     if base not in caminho.parents or not caminho.is_file():
         raise Http404('Arquivo não encontrado.')
     return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=arquivo)
+
+
+# --- Correções memorizadas ----------------------------------------------------
+
+def correcoes_lista(request):
+    """Lista as correções memorizadas — a memória de ajustes do sistema."""
+    itens = list(CorrecaoMemorizada.objects.all())
+    return render(request, 'repasses/correcoes.html', {
+        'correcoes': itens,
+        'total': len(itens),
+        'ativas': sum(1 for c in itens if c.ativo),
+    })
+
+
+def correcao_toggle(request, pk):
+    """Liga/desliga uma correção (sem apagar — fica o histórico)."""
+    if request.method == 'POST':
+        c = get_object_or_404(CorrecaoMemorizada, pk=pk)
+        c.ativo = not c.ativo
+        c.save()
+    return redirect('repasses:correcoes')
+
+
+def correcao_remover(request, pk):
+    """Remove definitivamente uma correção memorizada."""
+    if request.method == 'POST':
+        CorrecaoMemorizada.objects.filter(pk=pk).delete()
+    return redirect('repasses:correcoes')

@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Correções memorizadas{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Correções memorizadas</h1>
+    <p class="subtitulo-escuro">
+        A <strong>memória de ajustes</strong> do sistema. Toda vez que você corrige um honorário na
+        revisão e marca <strong>"memorizar"</strong>, o ajuste vem parar aqui e passa a ser
+        <strong>reaplicado automaticamente</strong> quando o mesmo procedimento/convênio aparecer de novo —
+        ninguém precisa refazer na mão. Para criar ou editar manualmente, use a
+        <a href="/admin/repasses/correcaomemorizada/">administração</a>.
+    </p>
+</section>
+
+<section class="cards-indicadores">
+    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Correções</span></div>
+    <div class="card-indicador"><span class="numero">{{ ativas }}</span><span class="rotulo">Ativas</span></div>
+</section>
+
+{% if correcoes %}
+<section class="bloco-medico">
+    <table class="tabela">
+        <thead>
+            <tr>
+                <th>Procedimento</th>
+                <th>Convênio</th>
+                <th>Médico</th>
+                <th class="num">Valor</th>
+                <th>Origem</th>
+                <th>Situação</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in correcoes %}
+            <tr{% if not c.ativo %} class="linha-inativa"{% endif %}>
+                <td>{{ c.procedimento }}</td>
+                <td>{{ c.convenio|default:"— qualquer —" }}</td>
+                <td>{{ c.medico|default:"— todos —" }}</td>
+                <td class="num">{{ c.valor_legivel }}</td>
+                <td><small>{{ c.origem|default:"—" }}</small></td>
+                <td>
+                    {% if c.ativo %}<span class="badge badge-ok">Ativa</span>
+                    {% else %}<span class="badge badge-zero">Desligada</span>{% endif %}
+                </td>
+                <td>
+                    <div class="acoes-linha">
+                        <form method="post" action="{% url 'repasses:correcao_toggle' c.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="botao botao-mini">{% if c.ativo %}Desligar{% else %}Ligar{% endif %}</button>
+                        </form>
+                        <form method="post" action="{% url 'repasses:correcao_remover' c.pk %}"
+                              onsubmit="return confirm('Remover esta correção definitivamente?');">
+                            {% csrf_token %}
+                            <button type="submit" class="botao botao-mini botao-perigo">Remover</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="nota">
+        <strong>Desligar</strong> mantém a correção guardada, mas para de aplicá-la (dá para religar depois).
+        <strong>Remover</strong> apaga de vez.
+    </p>
+</section>
+{% else %}
+<div class="alerta alerta-info">
+    Nenhuma correção memorizada ainda. Na <a href="{% url 'repasses:importar' %}">revisão de um repasse</a>,
+    ajuste um honorário e marque <strong>"memorizar"</strong> — ele aparece aqui e passa a valer para os próximos meses.
+</div>
+{% endif %}
+{% endblock %}

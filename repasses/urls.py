@@ -10,4 +10,7 @@ urlpatterns = [
     path('importar/', views.importar, name='importar'),
     path('importar/exportar/', views.exportar, name='exportar'),
     path('saidas/<str:pasta>/<str:arquivo>', views.baixar_saida, name='baixar_saida'),
+    path('correcoes/', views.correcoes_lista, name='correcoes'),
+    path('correcoes/<int:pk>/ligar/', views.correcao_toggle, name='correcao_toggle'),
+    path('correcoes/<int:pk>/remover/', views.correcao_remover, name='correcao_remover'),
 ]

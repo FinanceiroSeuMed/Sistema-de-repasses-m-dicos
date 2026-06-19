@@ -195,6 +195,10 @@ body {
 .badge-pendente { background: #fde8e8; color: #c0392b; }
 
 .alerta-info { background: #eaf3fb; color: #0b5fa5; border: 1px solid #bcdcf5; }
+.alerta-ok { background: #f0f9f4; color: #1f7a52; border: 1px solid #b6e3cd; }
+.badge-memo { background: #efeafc; color: #6b46c1; }
+.memo { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; color: var(--texto-suave); cursor: pointer; white-space: nowrap; }
+.memo input { margin-right: 3px; vertical-align: middle; }
 .razao { display: block; font-size: 12px; color: var(--texto-suave); margin-top: 2px; }
 .dia-bloco { font-size: 14px; font-weight: 500; color: var(--texto-suave); }
 
@@ -235,3 +239,10 @@ body {
 .tabela tfoot td { background: #f7f9fc; }
 .linha-indefinida { background: #fff7f6; }
 .linha-indefinida:hover { background: #ffefee; }
+.linha-inativa { opacity: .5; }
+.acoes-linha { display: flex; gap: 6px; }
+.acoes-linha form { margin: 0; }
+.botao-mini { padding: 5px 12px; font-size: 12px; border: 1px solid var(--cinza-borda); background: #f7f9fc; color: var(--texto-suave); cursor: pointer; }
+.botao-mini:hover { background: #eef2f7; }
+.botao-perigo { background: #fdecea; color: #b42318; border-color: #f5c6c0; }
+.botao-perigo:hover { background: #f9d7d2; }

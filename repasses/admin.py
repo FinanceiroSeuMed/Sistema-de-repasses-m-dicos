@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Medico
+from .models import CorrecaoMemorizada, Medico
 
 
 @admin.register(Medico)
@@ -28,3 +28,14 @@ class MedicoAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+
+@admin.register(CorrecaoMemorizada)
+class CorrecaoMemorizadaAdmin(admin.ModelAdmin):
+    list_display = ('procedimento', 'convenio', 'medico', 'tipo', 'valor', 'ativo', 'atualizado_em')
+    list_filter = ('ativo', 'tipo')
+    search_fields = ('procedimento', 'convenio', 'medico', 'origem', 'observacao')
+    readonly_fields = ('proc_norm', 'conv_norm', 'medico_norm', 'criado_em', 'atualizado_em')
+    fields = ('procedimento', 'convenio', 'medico', ('tipo', 'valor'), 'ativo',
+              'origem', 'observacao', ('proc_norm', 'conv_norm', 'medico_norm'),
+              ('criado_em', 'atualizado_em'))
