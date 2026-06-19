@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Regras de repasse{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Regras de repasse</h1>
+    <p class="subtitulo-escuro">
+        O valor do honorário de cada procedimento, por pagador. <strong>Agora ficam no
+        sistema</strong> (não mais na planilha). Para <strong>criar, editar ou desligar</strong> uma
+        regra, use o <a href="/admin/repasses/regrarepasse/">painel de regras</a> —
+        dá para alterar os valores direto na lista.
+    </p>
+    <p>
+        <a class="botao botao-download" href="/admin/repasses/regrarepasse/">✎ Editar regras</a>
+        <a class="botao botao-mini" href="/admin/repasses/regrarepasse/add/">+ Nova regra</a>
+    </p>
+</section>
+
+<section class="cards-indicadores">
+    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Regras</span></div>
+    <div class="card-indicador"><span class="numero">{{ ativas }}</span><span class="rotulo">Ativas</span></div>
+</section>
+
+<div class="alerta alerta-info">
+    Como ler os valores: <strong>em branco</strong> = não se aplica · <strong>“-”</strong> = não recebe ·
+    <strong>número</strong> = R$ fixo (ex.: 25) · <strong>com %</strong> = percentual sobre o valor do paciente (ex.: 24%).
+</div>
+
+{% for classe, itens in grupos %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>{{ classe }} ({{ itens|length }})</h2></div>
+    <table class="tabela">
+        <thead>
+            <tr>
+                <th>Procedimento</th>
+                <th class="num">Particular</th>
+                <th class="num">Convênio</th>
+                <th class="num">SUS</th>
+                <th class="num">OCI</th>
+                <th class="num">CISA</th>
+                <th>Situação</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in itens %}
+            <tr{% if not r.ativo %} class="linha-inativa"{% endif %}>
+                <td>{{ r.nome }}{% if r.observacao %}<br><small>{{ r.observacao }}</small>{% endif %}</td>
+                <td class="num">{{ r.val_particular|default:"—" }}</td>
+                <td class="num">{{ r.val_convenio|default:"—" }}</td>
+                <td class="num">{{ r.val_sus|default:"—" }}</td>
+                <td class="num">{{ r.val_oci|default:"—" }}</td>
+                <td class="num">{{ r.val_cisa|default:"—" }}</td>
+                <td>{% if r.ativo %}<span class="badge badge-ok">Ativa</span>{% else %}<span class="badge badge-zero">Desligada</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endfor %}
+{% endblock %}

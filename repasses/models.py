@@ -134,6 +134,54 @@ class CorrecaoMemorizada(models.Model):
         return f'{self.procedimento} / {alvo}'
 
 
+class RegraRepasse(models.Model):
+    """Regra de honorário por procedimento — geridas DENTRO do sistema (antes vinham
+    só da planilha). Cada coluna é o valor para um pagador.
+
+    Formato de cada valor (texto): em branco = não se aplica àquele pagador;
+    "-" = não recebe (R$ 0); número = R$ fixo (ex.: "25", "1120", "549,99");
+    percentual com % sobre o valor do paciente (ex.: "24%")."""
+
+    CLASSE_CIRURGIA = 'Cirurgias e Procedimentos'
+    CLASSE_EXAME = 'Exames e Consultas'
+    CLASSE_PRECEPTORIA = 'Preceptoria'
+    CLASSE_CHOICES = [
+        (CLASSE_CIRURGIA, 'Cirurgias e Procedimentos'),
+        (CLASSE_EXAME, 'Exames e Consultas'),
+        (CLASSE_PRECEPTORIA, 'Preceptoria'),
+    ]
+    _AJUDA = 'Em branco = não se aplica. "-" = não recebe. Número = R$ (ex.: 25). Percentual com % (ex.: 24%).'
+
+    classe = models.CharField('Classe', max_length=40, choices=CLASSE_CHOICES, default=CLASSE_EXAME)
+    nome = models.CharField('Procedimento', max_length=255)
+    nome_norm = models.CharField(max_length=255, editable=False, db_index=True)
+
+    val_particular = models.CharField('Particular', max_length=20, blank=True, help_text=_AJUDA)
+    val_convenio = models.CharField('Convênio', max_length=20, blank=True, help_text=_AJUDA)
+    val_sus = models.CharField('SUS', max_length=20, blank=True, help_text=_AJUDA)
+    val_oci = models.CharField('OCI', max_length=20, blank=True, help_text=_AJUDA)
+    val_cisa = models.CharField('CISA', max_length=20, blank=True, help_text=_AJUDA)
+
+    ativo = models.BooleanField('Ativa', default=True)
+    observacao = models.CharField('Observação', max_length=255, blank=True)
+    criado_em = models.DateTimeField('Criada em', auto_now_add=True)
+    atualizado_em = models.DateTimeField('Atualizada em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Regra de repasse'
+        verbose_name_plural = 'Regras de repasse'
+        ordering = ['classe', 'nome']
+        unique_together = [('nome_norm', 'classe')]
+
+    def save(self, *args, **kwargs):
+        from .services.regras import normalizar
+        self.nome_norm = normalizar(self.nome)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.nome} [{self.classe}]'
+
+
 class RepasseRascunho(models.Model):
     """Memória de curto prazo das edições de UM repasse em andamento.
 

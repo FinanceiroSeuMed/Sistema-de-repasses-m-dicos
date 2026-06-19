@@ -9,7 +9,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import CorrecaoMemorizada, Lote, Medico, Repasse, RepasseRascunho
+from .models import CorrecaoMemorizada, Lote, Medico, RegraRepasse, Repasse, RepasseRascunho
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -847,3 +847,20 @@ def correcao_remover(request, pk):
     if request.method == 'POST':
         CorrecaoMemorizada.objects.filter(pk=pk).delete()
     return redirect('repasses:correcoes')
+
+
+# --- Regras de repasse (geridas no sistema) -----------------------------------
+
+def regras_lista(request):
+    """Mostra as regras de honorário (antes só na planilha; agora no sistema)."""
+    todas = list(RegraRepasse.objects.all())
+    grupos = []
+    for classe, _rotulo in RegraRepasse.CLASSE_CHOICES:
+        itens = [r for r in todas if r.classe == classe]
+        if itens:
+            grupos.append((classe, itens))
+    return render(request, 'repasses/regras.html', {
+        'grupos': grupos,
+        'total': len(todas),
+        'ativas': sum(1 for r in todas if r.ativo),
+    })

@@ -62,6 +62,13 @@ _EXTRA_REGRAS = [
     # mais complexa; a "Vitrectomia Posterior" simples segue R$ 1.000).
     ('Vitrectomia Posterior com Infusão', 'Cirurgias e Procedimentos',
      {'cisa': 1120, 'sus': 1120}),
+    # Laudos (Retino/Angio/Campi) — confirmado pelo ouro Heric 17/06: Retino/Angio
+    # SUS = 10; Angio/Campi/Retino CISA = 30. Demais pagadores espelham a
+    # "Laudos - Retinografia" (mesma família). O MedPlus traz Honorários nominal.
+    ('Laudo - Retino/Angio', 'Exames e Consultas',
+     {'particular': 60, 'convenio': 30, 'sus': 10, 'cisa': 30}),
+    ('Laudo - Angio/Campi/Retino', 'Exames e Consultas',
+     {'particular': 60, 'convenio': 30, 'sus': 10, 'cisa': 30}),
 ]
 
 # Tipos de valor de uma regra
@@ -151,6 +158,40 @@ def _classificar_valor(bruto):
         return (PERCENTUAL, v) if v < 1 else (FIXO, v)
     except ValueError:
         return MANUAL, texto  # ex.: "Ver", "mesmo valor da catarata"
+
+
+def _valor_db(texto):
+    """Converte o texto guardado no banco numa célula que _classificar_valor entende.
+
+    '' -> None (não se aplica); '-' -> '-' (não recebe); 'NN%' -> fração (0.24);
+    número BR -> float; texto -> mantém (manual)."""
+    t = (texto or '').strip()
+    if not t:
+        return None
+    if t in ('-', '–'):
+        return '-'
+    tl = t.lower().replace('r$', '').strip()
+    pct = tl.endswith('%')
+    num = tl.rstrip('%').strip().replace('.', '').replace(',', '.')
+    try:
+        v = float(num)
+        return v / 100.0 if pct else v
+    except ValueError:
+        return t
+
+
+def _celula_para_db(bruto) -> str:
+    """Converte uma célula da planilha no texto canônico do banco (ver _valor_db)."""
+    tipo, val = _classificar_valor(bruto)
+    if tipo == SEM_VALOR:
+        return ''
+    if tipo == NEGATIVO:
+        return '-'
+    if tipo == MANUAL:
+        return str(val)
+    if tipo == PERCENTUAL:
+        return f'{val * 100:g}%'
+    return f'{val:g}'.replace('.', ',')   # FIXO
 
 
 # --- Estruturas ---------------------------------------------------------------
@@ -439,8 +480,38 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
 
 # --- Orquestração: aplicar regras a um relatório lido -------------------------
 
+def carregar_livro_db() -> LivroRegras:
+    """Monta o LivroRegras a partir do BANCO (RegraRepasse + cadastro de Médicos)."""
+    from ..models import Medico as MedicoModel, RegraRepasse
+    livro = LivroRegras()
+    for r in RegraRepasse.objects.filter(ativo=True):
+        valores = {pag: _valor_db(getattr(r, f'val_{pag}', '')) for pag in _PAGADORES}
+        livro.procedimentos.append(RegraProcedimento(
+            classe=r.classe, nome=r.nome, nome_norm=normalizar(r.nome),
+            tokens=_tokens(r.nome), valores=valores))
+    for m in MedicoModel.objects.all():
+        # categoria reúne o código + os papéis, p/ os testes 'fellow'/'preceptor'/etc.
+        cat = ' '.join(filter(None, [
+            m.categoria,
+            'fellow' if m.eh_fellow else '',
+            'preceptor' if m.eh_preceptor else '',
+            'anestesista' if m.eh_anestesista else '']))
+        livro.medicos.append(Medico(nome=m.nome, categoria=cat,
+                                    razao_social=m.razao_social or '', obs=m.regra_obs or ''))
+        if m.eh_preceptor and m.regra_obs:
+            livro.lembretes_preceptoria.append(f'{m.nome}: {m.regra_obs}')
+    return livro
+
+
 def carregar_livro_padrao() -> LivroRegras | None:
-    """Carrega as regras do caminho configurado em settings.REGRAS_REPASSE_PATH."""
+    """Regras do BANCO (geridas no sistema); se ainda não houver nenhuma, cai para
+    a planilha em settings.REGRAS_REPASSE_PATH (transição)."""
+    try:
+        from ..models import RegraRepasse
+        if RegraRepasse.objects.exists():
+            return carregar_livro_db()
+    except Exception:
+        pass  # banco ainda não pronto (ex.: antes das migrations) -> planilha
     from django.conf import settings
     caminho = getattr(settings, 'REGRAS_REPASSE_PATH', '')
     if caminho and os.path.exists(caminho):
