@@ -74,6 +74,10 @@ _PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
 def _salvar_rascunho(token, post):
     if not token:
         return
+    # Se o POST não traz NENHUM campo do formulário de revisão (ex.: veio da tela
+    # Visualizar, que é só-leitura), não sobrescreve — senão apagaria as edições.
+    if not any(chave.startswith(_PREFIXOS_RASCUNHO) for chave in post.keys()):
+        return
     dados = {}
     for chave in post.keys():
         if chave.startswith(_PREFIXOS_RASCUNHO):
@@ -486,6 +490,67 @@ def salvar(request):
             'até você importar um novo repasse.']
     return render(request, 'repasses/revisao.html',
                   _ctx_revisao(resultado, token, aviso, info=info, edicoes=dados))
+
+
+def revisar(request):
+    """Volta para a tela de revisão (edição) sem salvar nem gerar nada —
+    usado pelo botão 'Voltar à revisão' da tela de visualização."""
+    if request.method != 'POST':
+        raise Http404()
+    token = request.POST.get('token', '')
+    if _caminho_upload(token) is None:
+        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+    resultado, aviso, dados = _preparar_revisao(token)
+    return render(request, 'repasses/revisao.html',
+                  _ctx_revisao(resultado, token, aviso, edicoes=dados))
+
+
+def _resumo_visualizacao(resultado):
+    """Contagens e totais para a tela de visualização (consulta rápida)."""
+    contagem = Counter()
+    total_pagar = 0.0
+    medicos = set()
+    for b in resultado.blocos:
+        pagavel = False
+        for p in b.procedimentos:
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                contagem[medplus.subclasse_preview(p)] += 1
+                total_pagar += p.honorario
+                pagavel = True
+        if pagavel:
+            medicos.add(b.profissional)
+    total_pagar += sum(a.get('valor') or 0 for a in resultado.anestesistas)
+    total_receber = sum(float(p.valor) for b in resultado.blocos for p in b.procedimentos
+                        if p.valor is not None)
+    return {
+        'n_medicos': len(medicos),
+        'cirurgias': contagem.get(medplus.SUBCLASSE_CIRURGIA, 0),
+        'procedimentos': contagem.get(medplus.SUBCLASSE_PROCEDIMENTO, 0),
+        'exames': contagem.get(medplus.SUBCLASSE_EXAME, 0),
+        'preceptorias': contagem.get(medplus.SUBCLASSE_PRECEPTORIA, 0),
+        'n_anestesistas': len(resultado.anestesistas),
+        'total_pagar': round(total_pagar, 2),
+        'total_receber': round(total_receber, 2),
+    }
+
+
+def visualizar(request):
+    """Ação 'só visualizar': relatório estruturado, só-leitura, SEM gerar arquivo.
+    Salva as edições atuais (vem da revisão com o formulário completo)."""
+    if request.method != 'POST':
+        raise Http404()
+    token = request.POST.get('token', '')
+    if _caminho_upload(token) is None:
+        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+    _salvar_rascunho(token, request.POST)
+    resultado, aviso, dados = _preparar_revisao(token)
+    return render(request, 'repasses/visualizar.html', {
+        'resultado': resultado,
+        'token': token,
+        'aviso_regras': aviso,
+        'resumo': _resumo_visualizacao(resultado),
+        'pendencias': _pendencias_revisao(resultado),
+    })
 
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,

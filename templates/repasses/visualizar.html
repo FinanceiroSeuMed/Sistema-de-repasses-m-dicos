@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Visualização do repasse{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Visualização do repasse</h1>
+    <p class="subtitulo-escuro">
+        Conferência rápida — quem recebe o quê, com a contagem de cirurgias e procedimentos.
+        <strong>Nenhum arquivo é gerado aqui.</strong>
+    </p>
+</section>
+
+<form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
+    <section class="acoes-exportar">
+        <button type="submit" formaction="{% url 'repasses:exportar' %}" class="botao botao-primario">⬇ Exportar os arquivos</button>
+        <button type="submit" formaction="{% url 'repasses:revisar' %}" class="botao botao-secundario">✏ Voltar à revisão (editar)</button>
+    </section>
+</form>
+
+{% if pendencias %}
+<section class="pendencias pendencias-topo">
+    <h3>⚠️ {{ pendencias|length }} pendência(s) — resolva na revisão antes de exportar</h3>
+    <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<section class="cards-indicadores">
+    <div class="card-indicador"><span class="numero">{{ resumo.n_medicos }}</span><span class="rotulo">Médicos</span></div>
+    <div class="card-indicador"><span class="numero">{{ resumo.cirurgias }}</span><span class="rotulo">Cirurgias</span></div>
+    <div class="card-indicador"><span class="numero">{{ resumo.procedimentos }}</span><span class="rotulo">Procedimentos</span></div>
+    <div class="card-indicador"><span class="numero">{{ resumo.exames }}</span><span class="rotulo">Exames/Consultas</span></div>
+    <div class="card-indicador"><span class="numero">{{ resumo.total_pagar|moeda }}</span><span class="rotulo">Total a pagar</span></div>
+    <div class="card-indicador"><span class="numero">{{ resumo.total_receber|moeda }}</span><span class="rotulo">Total a receber</span></div>
+</section>
+
+{% for bloco in resultado.blocos %}
+{% if bloco.total_honorario %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho">
+        <div>
+            <h2>{{ bloco.profissional }}{% if bloco.data %} <span class="dia-bloco">— {{ bloco.data|date:"d/m/Y" }}</span>{% endif %}{% if bloco.clinica %} <span class="dia-bloco">· {{ bloco.clinica }}</span>{% endif %}</h2>
+            {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
+        </div>
+        <div class="bloco-badges">
+            {% for sub, total in bloco.totais_por_subclasse %}
+            <span class="badge badge-{{ sub|slug_subclasse }}">{{ sub }}: {{ total|moeda }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    <table class="tabela">
+        <thead>
+            <tr><th>Data</th><th>Procedimento</th><th>Convênio</th><th class="num">Qtd.</th><th class="num">Honorário</th></tr>
+        </thead>
+        <tbody>
+            {% for grupo, linhas in bloco.linhas_agrupadas %}
+            <tr class="subgrupo"><td colspan="5"><span class="badge badge-{{ grupo|slug_subclasse }}">{{ grupo }}</span> <small>({{ linhas|length }})</small></td></tr>
+            {% for p in linhas %}
+            {% if p.status_calculo == 'calculado' and p.honorario %}
+            <tr>
+                <td>{{ p.data_texto }}</td>
+                <td>{{ p.procedimento }}</td>
+                <td>{{ p.convenio }}</td>
+                <td class="num">{{ p.quantidade }}</td>
+                <td class="num">{{ p.honorario|moeda }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr><td colspan="4" class="num"><strong>Total a pagar</strong></td><td class="num"><strong>{{ bloco.total_honorario|moeda }}</strong></td></tr>
+        </tfoot>
+    </table>
+</section>
+{% endif %}
+{% endfor %}
+
+{% for a in resultado.anestesistas %}
+<section class="bloco-medico bloco-anestesista">
+    <div class="bloco-cabecalho">
+        <div>
+            <h2>🔵 {{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}</h2>
+            <span class="razao">Anestesia — cirurgião: {{ a.cirurgiao }}{% if a.horas %} · +{{ a.horas }}h extra{% endif %}</span>
+        </div>
+        <div class="bloco-badges"><span class="badge badge-cirurgia">Repasse: {{ a.valor|moeda }}</span></div>
+    </div>
+</section>
+{% endfor %}
+{% endblock %}

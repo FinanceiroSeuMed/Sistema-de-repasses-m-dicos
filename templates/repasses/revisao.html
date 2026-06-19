@@ -67,6 +67,7 @@
 
     <section class="acoes-exportar">
         <button type="submit" class="botao botao-primario">⬇ {% if downloads %}Reexportar com as edições{% else %}Exportar os arquivos{% endif %}</button>
+        <button type="submit" formaction="{% url 'repasses:visualizar' %}" class="botao botao-secundario-escuro">👁 Visualizar (sem gerar arquivo)</button>
         <button type="submit" formaction="{% url 'repasses:salvar' %}" class="botao botao-secundario-escuro">💾 Salvar alterações</button>
         <a class="botao botao-secundario-escuro" href="{% url 'repasses:importar' %}">Trocar arquivo</a>
         <span class="dica">As alterações ficam guardadas (clique em <strong>Salvar</strong> a qualquer momento) até você importar um novo repasse.</span>
