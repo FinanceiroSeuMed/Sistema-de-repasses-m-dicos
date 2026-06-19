@@ -190,3 +190,45 @@ class Lote(models.Model):
 
     def __str__(self):
         return f'Lote {self.id} — {self.arquivo_nome or self.token} ({self.criado_em:%d/%m/%Y})'
+
+
+class Repasse(models.Model):
+    """Um repasse individual (médico/dia/clínica) com seu andamento de pagamento.
+
+    Permite acompanhar cada repasse de 'gerado' até 'pago' — o painel do que
+    ainda falta enviar/pagar. Mantém o status mesmo se o lote for re-exportado."""
+
+    STATUS_GERADO = 'gerado'
+    STATUS_REVISADO = 'revisado'
+    STATUS_ENVIADO = 'enviado'
+    STATUS_PAGO = 'pago'
+    STATUS_CHOICES = [
+        (STATUS_GERADO, 'Gerado'),
+        (STATUS_REVISADO, 'Revisado'),
+        (STATUS_ENVIADO, 'Enviado ao médico'),
+        (STATUS_PAGO, 'Pago'),
+    ]
+
+    lote = models.ForeignKey(Lote, on_delete=models.CASCADE, related_name='repasses')
+    tipo = models.CharField(max_length=12, default='medico')  # medico | anestesista
+    medico = models.CharField('Profissional', max_length=200)
+    razao_social = models.CharField('Razão Social', max_length=200, blank=True)
+    data = models.DateField('Data', null=True, blank=True)
+    clinica = models.CharField('Clínica', max_length=200, blank=True)
+    valor = models.DecimalField('Valor', max_digits=12, decimal_places=2, default=0)
+    status = models.CharField('Status', max_length=12, choices=STATUS_CHOICES, default=STATUS_GERADO)
+    atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Repasse (acompanhamento)'
+        verbose_name_plural = 'Repasses (acompanhamento)'
+        ordering = ['data', 'clinica', 'medico']
+        unique_together = [('lote', 'tipo', 'medico', 'data', 'clinica')]
+
+    @property
+    def pago(self):
+        return self.status == self.STATUS_PAGO
+
+    def __str__(self):
+        dia = self.data.strftime('%d/%m') if self.data else 's/ data'
+        return f'{self.medico} {dia} {self.clinica} — {self.get_status_display()}'

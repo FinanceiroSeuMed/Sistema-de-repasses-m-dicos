@@ -46,6 +46,40 @@
     {% endfor %}
 </section>
 
+{% if repasses %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>📤 Andamento dos repasses</h2></div>
+    <p class="nota">Acompanhe cada repasse de <strong>Gerado</strong> até <strong>Pago</strong>. Escolha o status e clique em Salvar.</p>
+    <form method="post" action="{% url 'repasses:lote_status' lote.id %}">
+        {% csrf_token %}
+        <table class="tabela">
+            <thead>
+                <tr><th>Profissional</th><th>Data</th><th>Clínica</th><th class="num">Valor</th><th>Status atual</th><th>Mudar para</th></tr>
+            </thead>
+            <tbody>
+                {% for r in repasses %}
+                <tr>
+                    <td>{{ r.medico }}{% if r.tipo == 'anestesista' %} <small>(anestesista)</small>{% endif %}</td>
+                    <td>{% if r.data %}{{ r.data|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+                    <td>{{ r.clinica|default:"—" }}</td>
+                    <td class="num">{{ r.valor|moeda }}</td>
+                    <td><span class="badge badge-{{ r.status|badge_repasse }}">{{ r.get_status_display }}</span></td>
+                    <td>
+                        <select class="inp-classe" name="status_{{ r.id }}">
+                            {% for val, rotulo in status_choices %}
+                            <option value="{{ val }}"{% if val == r.status %} selected{% endif %}>{{ rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p style="margin-top:12px"><button type="submit" class="botao botao-download">💾 Salvar status</button></p>
+    </form>
+</section>
+{% endif %}
+
 <section class="bloco-medico">
     <div class="bloco-cabecalho"><h2>🔎 Auditoria — ajustes manuais</h2></div>
     {% if lote.auditoria %}

@@ -9,7 +9,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import CorrecaoMemorizada, Lote, Medico, RepasseRascunho
+from .models import CorrecaoMemorizada, Lote, Medico, Repasse, RepasseRascunho
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -671,7 +671,7 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
                           f'({lote.arquivo_nome or "?"}, {lote.criado_em:%d/%m/%Y}) — '
                           'confira para não pagar 2×.')
 
-    Lote.objects.update_or_create(token=token, defaults={
+    lote, _ = Lote.objects.update_or_create(token=token, defaults={
         'criado_por': quem, 'arquivo_nome': arq_nome, 'unidade': resultado.unidade or '',
         'periodo_inicio': min(datas) if datas else None,
         'periodo_fim': max(datas) if datas else None,
@@ -680,21 +680,57 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
         'pasta_saida': pasta_saida, 'downloads': downloads,
         'auditoria': _auditoria_lote(resultado, dados), 'fingerprints': fps,
     })
+    _sync_repasses(lote, resultado)
     return avisos
 
 
+def _sync_repasses(lote, resultado):
+    """Cria/atualiza os repasses individuais do lote (p/ acompanhar o pagamento).
+    Preserva o status de quem já existia (re-exportar não volta tudo p/ 'gerado')."""
+    atuais = set()
+    for b in resultado.blocos:
+        pag = [p for p in b.procedimentos
+               if p.status_calculo == 'calculado' and (p.honorario or 0) > 0]
+        if not pag:
+            continue
+        valor = round(sum(p.honorario for p in pag), 2)
+        Repasse.objects.update_or_create(
+            lote=lote, tipo='medico', medico=b.profissional, data=b.data,
+            clinica=b.clinica or '',
+            defaults={'valor': valor, 'razao_social': b.razao_social or ''})
+        atuais.add(('medico', b.profissional, b.data, b.clinica or ''))
+    for a in resultado.anestesistas:
+        Repasse.objects.update_or_create(
+            lote=lote, tipo='anestesista', medico=a['anestesista'], data=a.get('data'),
+            clinica=a.get('clinica', '') or '',
+            defaults={'valor': round(float(a.get('valor') or 0), 2),
+                      'razao_social': a.get('razao_social', '') or ''})
+        atuais.add(('anestesista', a['anestesista'], a.get('data'), a.get('clinica', '') or ''))
+    for r in lote.repasses.all():
+        if (r.tipo, r.medico, r.data, r.clinica) not in atuais:
+            r.delete()
+
+
 def lotes_lista(request):
-    """Histórico de lotes processados."""
+    """Histórico de lotes processados, com o que ainda falta pagar."""
     lotes = list(Lote.objects.all())
+    pendentes_total = 0
+    for l in lotes:
+        reps = list(l.repasses.all())
+        l.n_total = len(reps)
+        l.n_pagos = sum(1 for r in reps if r.status == Repasse.STATUS_PAGO)
+        l.n_pendentes = l.n_total - l.n_pagos
+        pendentes_total += l.n_pendentes
     return render(request, 'repasses/lotes.html', {
         'lotes': lotes,
         'total': len(lotes),
         'total_pagar': sum((l.total_pagar for l in lotes), 0),
+        'pendentes_total': pendentes_total,
     })
 
 
 def lote_detalhe(request, pk):
-    """Detalhe de um lote: re-baixar os arquivos + auditoria dos ajustes."""
+    """Detalhe de um lote: re-baixar os arquivos, status dos repasses, auditoria."""
     lote = get_object_or_404(Lote, pk=pk)
     base = Path(settings.SAIDAS_DIR) / lote.pasta_saida
     downloads = [dict(d, existe=(base / d['arquivo']).is_file()) for d in lote.downloads]
@@ -702,7 +738,22 @@ def lote_detalhe(request, pk):
         'lote': lote,
         'downloads': downloads,
         'algum_sumiu': any(not d['existe'] for d in downloads),
+        'repasses': list(lote.repasses.all()),
+        'status_choices': Repasse.STATUS_CHOICES,
     })
+
+
+def lote_status(request, pk):
+    """Salva o andamento (gerado/revisado/enviado/pago) dos repasses do lote."""
+    lote = get_object_or_404(Lote, pk=pk)
+    if request.method == 'POST':
+        validos = dict(Repasse.STATUS_CHOICES)
+        for r in lote.repasses.all():
+            novo = request.POST.get(f'status_{r.id}')
+            if novo in validos and novo != r.status:
+                r.status = novo
+                r.save()
+    return redirect('repasses:lote_detalhe', pk=lote.id)
 
 
 # --- Correções memorizadas ----------------------------------------------------

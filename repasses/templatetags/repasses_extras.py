@@ -69,6 +69,17 @@ def rotulo_status(valor):
 
 
 @register.filter
+def badge_repasse(valor):
+    """Cor do selo de status do repasse (gerado/revisado/enviado/pago)."""
+    return {
+        'gerado': 'zero',
+        'revisado': 'cirurgia',
+        'enviado': 'preceptoria',
+        'pago': 'ok',
+    }.get(valor, 'zero')
+
+
+@register.filter
 def slug_subclasse(valor):
     """Sufixo CSS para a subclasse do preview (Cirurgias × Procedimentos × ...)."""
     return {

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CorrecaoMemorizada, Lote, Medico
+from .models import CorrecaoMemorizada, Lote, Medico, Repasse
 
 
 @admin.register(Medico)
@@ -51,3 +51,11 @@ class LoteAdmin(admin.ModelAdmin):
                        'unidade', 'periodo_inicio', 'periodo_fim', 'n_medicos', 'n_repasses',
                        'total_pagar', 'total_receber', 'pasta_saida', 'downloads',
                        'auditoria', 'fingerprints')
+
+
+@admin.register(Repasse)
+class RepasseAdmin(admin.ModelAdmin):
+    list_display = ('medico', 'data', 'clinica', 'tipo', 'valor', 'status', 'lote')
+    list_filter = ('status', 'tipo', 'clinica')
+    search_fields = ('medico', 'razao_social', 'clinica')
+    list_editable = ('status',)
