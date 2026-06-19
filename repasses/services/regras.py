@@ -424,14 +424,14 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
             val, tipo = _valor_catarata(livro, medico, pagador)
             if tipo == FIXO:
                 # Faco que INCLUI consulta pré-operatória (nome traz "Incluso: ... Consulta"):
-                # repasse = faco base do médico (SUS) + consulta do convênio.
+                # repasse = faco base do médico NO PRÓPRIO CONVÊNIO + consulta do convênio.
+                # (CISA usa a base CISA, não a do SUS — decisão da diretoria 2026-06.)
                 if 'consulta' in normalizar(procedimento):
-                    base, tbase = _valor_catarata(livro, medico, 'sus')
                     cons = _valor_consulta(livro, pagador)
-                    if tbase == FIXO and cons is not None:
+                    if cons is not None:
                         return ResultadoCalculo(
-                            CALCULADO, round(base + cons, 2),
-                            motivo=f'Faco {base:.0f} + consulta inclusa {cons:.0f} = {base+cons:.0f}.',
+                            CALCULADO, round(val + cons, 2),
+                            motivo=f'Faco {val:.0f} + consulta inclusa {cons:.0f} = {val+cons:.0f}.',
                             regra='Cirurgia de Catarata (com consulta)', tipo=FIXO)
                 return ResultadoCalculo(CALCULADO, round(val, 2),
                                         motivo=f'Catarata {pagador.upper()} (valor fixo do médico).',
