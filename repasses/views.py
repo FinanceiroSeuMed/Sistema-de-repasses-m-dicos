@@ -614,6 +614,7 @@ def _memorizar_correcoes(resultado, post):
                 continue
             correcoes.memorizar(
                 p.procedimento, p.convenio, round(float(p.honorario), 2),
+                classe=p.classe,
                 origem=(resultado.unidade or '')[:180],
                 observacao=f'{bloco.profissional} {p.data_texto}'.strip())
             salvos += 1

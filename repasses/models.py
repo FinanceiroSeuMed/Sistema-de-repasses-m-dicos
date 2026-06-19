@@ -99,6 +99,8 @@ class CorrecaoMemorizada(models.Model):
     tipo = models.CharField('Tipo', max_length=12, choices=TIPO_CHOICES, default=TIPO_FIXO)
     valor = models.DecimalField('Valor', max_digits=12, decimal_places=4,
                                 help_text='Fixo: em Reais. Percentual: fração (ex.: 0,24 = 24%).')
+    classe = models.CharField('Classe', max_length=40, blank=True,
+                              help_text='Se preenchida, também força a classe (ex.: laudos).')
 
     ativo = models.BooleanField('Ativa', default=True)
     origem = models.CharField('Origem', max_length=200, blank=True,

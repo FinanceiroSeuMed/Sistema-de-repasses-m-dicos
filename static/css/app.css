@@ -212,8 +212,11 @@ body {
 .botao-download:hover { background: #18815a; }
 .botao-download small { font-weight: 400; opacity: .9; }
 
-.acoes-exportar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 20px 0; }
+.acoes-exportar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0;
+    position: sticky; top: 0; z-index: 30; background: #0b5fa5; padding: 12px 16px;
+    border-radius: 12px; box-shadow: 0 4px 14px rgba(11,95,165,0.28); }
 .acoes-exportar form { margin: 0; }
+.acoes-exportar .dica { color: #dceaf7; }
 .botao-secundario-escuro { background: #eef2f7; color: #52606d; border: 1px solid var(--cinza-borda); }
 .botao-secundario-escuro:hover { background: #e2e8f0; }
 .titulo-secao { margin: 28px 0 8px; font-size: 20px; }

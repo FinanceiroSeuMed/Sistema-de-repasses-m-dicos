@@ -39,6 +39,10 @@ CLASSES_FORA_DO_PAGAR = {medplus.CLASSE_TAXA}
 
 CONTA_CORRENTE = 'Omie.CASH'
 
+# Contas a RECEBER: o Cliente somos nós (a associação); a filial vai no Departamento.
+# Na OMIE os clientes são todos "ASSOCIACAO SEUMED HOSPITAL DE OLHOS" por filial.
+CLIENTE_RECEBER = 'ASSOCIACAO SEUMED HOSPITAL DE OLHOS'
+
 # Colunas (1-indexadas) no layout das planilhas OMIE; dados começam na linha 6.
 LINHA_INICIAL = 6
 COL_NOME = 3        # C: Fornecedor (pagar) / Cliente (receber)
@@ -228,7 +232,7 @@ def gerar_contas_receber(resultado, modelo_path, categoria_fallback='Outras Rece
     for (dia, clinica), soma in sorted(grupos.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
         d = dia or ref
         rotulo = f' {clinica}' if clinica else ''
-        linhas.append({'nome': clinica or 'Pacientes', 'categoria': categoria_fallback,
+        linhas.append({'nome': CLIENTE_RECEBER, 'categoria': categoria_fallback,
                        'valor': soma, 'registro': d, 'vencimento': venc_dia10_mes_seguinte(d),
                        'observacao': f'Recebimento de atendimentos {d.strftime("%d/%m")}{rotulo}',
                        'departamento': clinica})

@@ -64,6 +64,8 @@ def aplicar(resultado) -> int:
                 p.honorario = float(c.valor) * float(p.valor)
             else:
                 p.honorario = float(c.valor)
+            if c.classe:
+                p.classe = c.classe  # também lembra a mudança de classe (ex.: laudos)
             p.status_calculo = 'calculado'
             p.motivo_calculo = f'Correção memorizada (salva em {c.criado_em:%d/%m/%Y}).'
             n += 1
@@ -71,7 +73,7 @@ def aplicar(resultado) -> int:
 
 
 def memorizar(procedimento, convenio, valor, *, medico='', tipo=CorrecaoMemorizada.TIPO_FIXO,
-              origem='', observacao=''):
+              classe='', origem='', observacao=''):
     """Cria ou atualiza uma correção. Casa pelos campos normalizados (upsert)."""
     proc_n = normalizar(procedimento)
     conv_n = normalizar(convenio)
@@ -80,7 +82,7 @@ def memorizar(procedimento, convenio, valor, *, medico='', tipo=CorrecaoMemoriza
         proc_norm=proc_n, conv_norm=conv_n, medico_norm=med_n,
         defaults={
             'procedimento': procedimento, 'convenio': convenio or '',
-            'medico': medico or '', 'tipo': tipo, 'valor': valor,
+            'medico': medico or '', 'tipo': tipo, 'valor': valor, 'classe': classe or '',
             'ativo': True, 'origem': origem, 'observacao': observacao,
         },
     )
