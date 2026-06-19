@@ -78,8 +78,8 @@
                 {% if bloco.razao_social %}<span class="razao">{{ bloco.razao_social }}</span>{% endif %}
             </div>
             <div class="bloco-badges">
-                {% for classe, total in bloco.totais_por_classe %}
-                <span class="badge badge-{{ classe|slug_classe }}">{{ classe }}: {{ total|moeda }}</span>
+                {% for sub, total in bloco.totais_por_subclasse %}
+                <span class="badge badge-{{ sub|slug_subclasse }}">{{ sub }}: {{ total|moeda }}</span>
                 {% endfor %}
             </div>
         </div>
@@ -124,7 +124,9 @@
                 </tr>
             </thead>
             <tbody>
-                {% for p in bloco.procedimentos %}
+                {% for grupo, linhas in bloco.linhas_agrupadas %}
+                <tr class="subgrupo"><td colspan="8"><span class="badge badge-{{ grupo|slug_subclasse }}">{{ grupo }}</span> <small>({{ linhas|length }})</small></td></tr>
+                {% for p in linhas %}
                 <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
                     <td>{{ p.data_texto }}</td>
                     <td>{{ p.procedimento }}</td>
@@ -164,6 +166,7 @@
                         {% endif %}
                     </td>
                 </tr>
+                {% endfor %}
                 {% endfor %}
             </tbody>
             <tfoot>

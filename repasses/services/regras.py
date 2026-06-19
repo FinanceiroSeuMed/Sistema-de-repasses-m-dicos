@@ -40,18 +40,12 @@ FELLOW_PERCENTUAL = 0.40     # fellow recebe 40%; cirurgião 60%
 # Regina = 1000 (15-24 pacientes) ou 1500 (>24) + 200/h extra.
 ANESTESISTA_BASE = 1200
 ANESTESISTA_HORA_EXTRA = 200
-REGINA_LIMITE_PACIENTES = 24
-REGINA_BASE_BAIXO = 1000
-REGINA_BASE_ALTO = 1500
 
 
-def valor_anestesista(nome: str, horas_extra=0, num_pacientes=None) -> float:
-    n = normalizar(nome)
-    if 'regina' in n:
-        base = REGINA_BASE_ALTO if (num_pacientes or 0) > REGINA_LIMITE_PACIENTES else REGINA_BASE_BAIXO
-    else:
-        base = ANESTESISTA_BASE
-    return round(base + (horas_extra or 0) * ANESTESISTA_HORA_EXTRA, 2)
+def valor_anestesista(nome: str, horas_extra=0) -> float:
+    """Valor fixo do dia + horas extras. (Dra. Regina é paga em dinheiro, fora da
+    OMIE, então não tem mais regra especial por nº de pacientes.)"""
+    return round(ANESTESISTA_BASE + (horas_extra or 0) * ANESTESISTA_HORA_EXTRA, 2)
 
 # Correções de valores da planilha confirmadas pelos testes de ouro da diretoria.
 _OVERRIDES = {

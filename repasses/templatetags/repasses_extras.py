@@ -69,6 +69,18 @@ def rotulo_status(valor):
 
 
 @register.filter
+def slug_subclasse(valor):
+    """Sufixo CSS para a subclasse do preview (Cirurgias × Procedimentos × ...)."""
+    return {
+        'Cirurgias': 'cirurgia',
+        'Procedimentos': 'procedimento',
+        'Exames e Consultas': 'exame',
+        'Preceptorias': 'preceptoria',
+        'A classificar': 'indefinida',
+    }.get(valor, 'indefinida')
+
+
+@register.filter
 def slug_classe(valor):
     """Converte o nome da classe num sufixo de CSS estável."""
     mapa = {

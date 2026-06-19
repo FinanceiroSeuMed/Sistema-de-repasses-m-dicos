@@ -101,20 +101,10 @@ def _limpar_linhas(resultado):
     resultado.blocos = [b for b in resultado.blocos if b.procedimentos]
 
 
-def _unificar_medicos(resultado):
-    """Une blocos do mesmo médico com cadastros MedPlus diferentes — ex.:
-    'Dra. Tharcila (PR2)' e 'Dra. Tharcila (Geral)' são a mesma pessoa."""
-    canonicos = {}
-    novos = []
-    for bloco in resultado.blocos:
-        nome = _RE_SUFIXO_CADASTRO.sub('', bloco.profissional).strip()
-        if nome in canonicos:
-            canonicos[nome].procedimentos.extend(bloco.procedimentos)
-        else:
-            bloco.profissional = nome
-            canonicos[nome] = bloco
-            novos.append(bloco)
-    resultado.blocos = novos
+def _nome_base_medico(nome):
+    """Remove o sufixo de unidade entre parênteses: 'Dr. Carlos (PR3)' -> 'Dr. Carlos'.
+    As variantes (Geral/PR2/PR3) são a MESMA pessoa — a clínica vem da coluna própria."""
+    return _RE_SUFIXO_CADASTRO.sub('', nome or '').strip()
 
 
 def _ler_e_processar(caminho, nome=''):
@@ -143,24 +133,33 @@ def _ler_e_processar(caminho, nome=''):
 
 
 def _separar_por_dia(resultado):
-    """Quebra cada bloco (médico) em um bloco por (DIA, CLÍNICA/filial)."""
-    novos = []
+    """Um bloco por (MÉDICO, DIA, CLÍNICA).
+
+    O sufixo de unidade no nome ('(Geral)', '(PR3)') NÃO diferencia: é a mesma
+    pessoa. Agrupa por (nome sem sufixo, dia, clínica da coluna própria), unindo
+    variantes do mesmo médico. Ex.: 'Dr. Carlos (Geral)' e 'Dr. Carlos (PR3)' no
+    mesmo dia/clínica viram um bloco só."""
+    from datetime import date as _date
+    grupos = {}
+    ordem = []
     for bloco in resultado.blocos:
-        grupos = {}
+        nome = _nome_base_medico(bloco.profissional)
         for p in bloco.procedimentos:
-            grupos.setdefault((p.data, p.clinica), []).append(p)
+            chave = (nome, p.data, p.clinica)
+            nb = grupos.get(chave)
+            if nb is None:
+                nb = medplus.BlocoMedico(profissional=nome)
+                nb.data = p.data
+                nb.clinica = p.clinica
+                grupos[chave] = nb
+                ordem.append(chave)
+            nb.procedimentos.append(p)
 
-        def _chave(k):
-            d, c = k
-            return (d or __import__('datetime').date.max, c)
+    def _chave(k):
+        nome, d, c = k
+        return (d or _date.max, c or '', nome)
 
-        for (d, c) in sorted(grupos, key=_chave):
-            nb = medplus.BlocoMedico(profissional=bloco.profissional)
-            nb.data = d
-            nb.clinica = c
-            nb.procedimentos = grupos[(d, c)]
-            novos.append(nb)
-    resultado.blocos = novos
+    resultado.blocos = [grupos[k] for k in sorted(ordem, key=_chave)]
 
 
 def _aplicar_keiti(resultado):
@@ -320,18 +319,27 @@ def _resolver_preceptoria(resultado, post):
         bloco.procedimentos.append(linha)
 
 
+# Anestesistas pagos em dinheiro (fora da OMIE) — não entram na seleção nem geram
+# linha/repasse. Hoje: Dra. Regina.
+_ANESTESISTAS_FORA_OMIE = ('regina',)
+
+
+def _anestesista_fora_omie(nome):
+    n = regras.normalizar(nome)
+    return any(x in n for x in _ANESTESISTAS_FORA_OMIE)
+
+
 def _resolver_anestesistas(resultado, post):
     """Para cada cirurgião com cirurgia, registra o anestesista escolhido na
-    revisão (valor fixo do dia + horas extras) — gera linha no a pagar e PDF."""
+    revisão (valor fixo do dia + horas extras) — gera linha no a pagar e repasse."""
     for i, bloco in enumerate(list(resultado.blocos)):
         if not bloco.tem_cirurgia:
             continue
         nome = (post.get(f'anest_nome_{i}') or '').strip()
-        if not nome:
-            continue
+        if not nome or _anestesista_fora_omie(nome):
+            continue  # Regina é paga em dinheiro, fora da OMIE
         horas = _num(post.get(f'anest_horas_{i}')) or 0
-        pacientes = _num(post.get(f'anest_pac_{i}'))
-        valor = regras.valor_anestesista(nome, horas, pacientes)
+        valor = regras.valor_anestesista(nome, horas)
         m = Medico.objects.filter(nome=nome).first()
         # Só as CIRURGIAS de fato entram no repasse do anestesista (não os
         # procedimentos de consultório como YAG/laser).
@@ -339,11 +347,13 @@ def _resolver_anestesistas(resultado, post):
                      if p.classe == medplus.CLASSE_CIRURGIA and medplus.eh_cirurgia(p.procedimento)]
         datas = [p.data for p in cirurgias if p.data]
         resultado.anestesistas.append({
+            'indice': i,
             'anestesista': nome,
             'razao_social': m.razao_social if m else '',
             'cirurgiao': bloco.profissional,
             'clinica': getattr(bloco, 'clinica', '') or '',
             'data': max(datas) if datas else None,
+            'horas': int(horas) if horas else 0,
             'valor': valor,
             'cirurgias': cirurgias,
         })
@@ -417,7 +427,8 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'qtd_cirurgias': len(cirurgias),
         'classes': medplus.CLASSES,
         'fellows': list(Medico.objects.filter(eh_fellow=True)),
-        'anestesistas': list(Medico.objects.filter(eh_anestesista=True)),
+        'anestesistas': [m for m in Medico.objects.filter(eh_anestesista=True)
+                         if not _anestesista_fora_omie(m.nome)],
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
 
@@ -499,6 +510,7 @@ def _gerar_arquivos_por_dia(resultado):
     for a in resultado.anestesistas:
         base = repasse.nome_base_anestesista(a)
         grupo = f'Anestesista — {a["anestesista"]}'
+        arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel_anestesista(a, resultado.unidade)))
         arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
     return arquivos, pend
 

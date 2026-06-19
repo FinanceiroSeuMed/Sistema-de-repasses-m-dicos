@@ -201,6 +201,55 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     return buf.getvalue()
 
 
+def gerar_excel_anestesista(entry, unidade: str) -> bytes:
+    """Excel (arquivo interno) do repasse do anestesista — mesmo padrão do médico."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Repasse'
+
+    negrito = Font(bold=True)
+    titulo = Font(bold=True, size=14)
+    cabec_fill = PatternFill('solid', fgColor='0B5FA5')
+    cabec_font = Font(bold=True, color='FFFFFF')
+
+    ws['A1'] = unidade or 'Repasse de Anestesia'
+    ws['A1'].font = titulo
+    ws['A2'] = 'Demonstrativo de Repasse de Anestesia'
+    ws['A2'].font = negrito
+    ws['A3'] = f'Anestesista: {entry.get("anestesista")}'
+    ws['A4'] = f'Cirurgião: {entry.get("cirurgiao")}'
+    data = entry.get('data')
+    if data:
+        ws['A5'] = f'Data: {data.strftime("%d/%m/%Y")}'
+    linha = 7
+
+    colunas = ['Data', 'Procedimento', 'Convênio', 'Qtd.']
+    for c, titulo_col in enumerate(colunas, start=1):
+        cel = ws.cell(linha, c, titulo_col)
+        cel.fill = cabec_fill
+        cel.font = cabec_font
+    linha += 1
+
+    for p in entry.get('cirurgias', []):
+        ws.cell(linha, 1, p.data_texto)
+        ws.cell(linha, 2, p.procedimento)
+        ws.cell(linha, 3, p.convenio)
+        ws.cell(linha, 4, p.quantidade)
+        linha += 1
+
+    ws.cell(linha, 3, 'Total').font = negrito
+    cel_total = ws.cell(linha, 4, round(float(entry.get('valor') or 0), 2))
+    cel_total.number_format = 'R$ #,##0.00'
+    cel_total.font = negrito
+
+    for i, w in enumerate([12, 50, 18, 8], start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def gerar_pdf_anestesista(entry, unidade: str) -> bytes:
     """PDF de repasse do anestesista: lista as cirurgias do dia (com o cirurgião)
     e o total fixo do anestesista."""

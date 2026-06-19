@@ -186,6 +186,7 @@ body {
 
 .badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #eef2f7; color: var(--texto-suave); white-space: nowrap; }
 .badge-cirurgia { background: #e7f0fb; color: #0b5fa5; }
+.badge-procedimento { background: #e6eefb; color: #3b56b0; }
 .badge-exame { background: #e3f6ec; color: #1f9d6b; }
 .badge-preceptoria { background: #efeafc; color: #6b46c1; }
 .badge-taxa { background: #fdebd2; color: #b9700f; }
@@ -239,6 +240,8 @@ body {
 .tabela tfoot td { background: #f7f9fc; }
 .linha-indefinida { background: #fff7f6; }
 .linha-indefinida:hover { background: #ffefee; }
+.subgrupo td { background: #f2f6fb; padding-top: 7px; padding-bottom: 7px; }
+.subgrupo:hover td { background: #f2f6fb; }
 .linha-inativa { opacity: .5; }
 .acoes-linha { display: flex; gap: 6px; }
 .acoes-linha form { margin: 0; }

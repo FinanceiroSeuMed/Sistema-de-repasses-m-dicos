@@ -28,6 +28,17 @@ CLASSE_INDEFINIDA = 'A classificar'
 
 CLASSES = [CLASSE_CIRURGIA, CLASSE_EXAME, CLASSE_PRECEPTORIA, CLASSE_TAXA, CLASSE_INDEFINIDA]
 
+# Subclasses só para a VISUALIZAÇÃO (preview do site): "Cirurgias e Procedimentos"
+# se divide em Cirurgias vs Procedimentos (consultório: YAG/laser etc.). Na OMIE a
+# pagar continua sendo uma classe só ("Cirurgias e Procedimentos").
+SUBCLASSE_CIRURGIA = 'Cirurgias'
+SUBCLASSE_PROCEDIMENTO = 'Procedimentos'
+SUBCLASSE_EXAME = 'Exames e Consultas'
+SUBCLASSE_PRECEPTORIA = 'Preceptorias'
+SUBCLASSE_INDEFINIDA = 'A classificar'
+SUBCLASSES = [SUBCLASSE_CIRURGIA, SUBCLASSE_PROCEDIMENTO, SUBCLASSE_EXAME,
+              SUBCLASSE_PRECEPTORIA, SUBCLASSE_INDEFINIDA]
+
 # Palavras-chave para um PALPITE inicial de classificação. É provisório:
 # a classificação definitiva virá das regras (anexo 5) e poderá ser editada
 # pelo usuário linha a linha.
@@ -132,6 +143,25 @@ class BlocoMedico:
                 tot[p.classe] = tot.get(p.classe, 0) + p.honorario  # precisão cheia
         return [(c, round(tot[c], 2)) for c in CLASSES if c in tot]  # arredonda só no fim
 
+    @property
+    def linhas_agrupadas(self) -> list[tuple[str, list]]:
+        """[(subclasse, [procedimentos])] na ordem do preview, só grupos não vazios.
+        Divide 'Cirurgias e Procedimentos' em Cirurgias × Procedimentos."""
+        grupos = {}
+        for p in self.procedimentos:
+            grupos.setdefault(subclasse_preview(p), []).append(p)
+        return [(s, grupos[s]) for s in SUBCLASSES if s in grupos]
+
+    @property
+    def totais_por_subclasse(self) -> list[tuple[str, float]]:
+        """(subclasse, total calculado) — badges do preview (4 tipos)."""
+        tot = {}
+        for p in self.procedimentos:
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                s = subclasse_preview(p)
+                tot[s] = tot.get(s, 0) + p.honorario
+        return [(s, round(tot[s], 2)) for s in SUBCLASSES if s in tot]
+
     # Preenchidos pelo orquestrador (regras.processar)
     lembrete: str = ''
     razao_social: str = ''
@@ -224,6 +254,17 @@ def eh_cirurgia(procedimento: str) -> bool:
     if any(k in n for k in ('yag', 'laser')):
         return False
     return any(k in n for k in _CIRURGIAS_ANESTESIA)
+
+
+def subclasse_preview(p) -> str:
+    """Subclasse só para o preview (Cirurgias × Procedimentos × Exames × Preceptorias)."""
+    if p.classe == CLASSE_PRECEPTORIA:
+        return SUBCLASSE_PRECEPTORIA
+    if p.classe == CLASSE_EXAME:
+        return SUBCLASSE_EXAME
+    if p.classe == CLASSE_CIRURGIA:
+        return SUBCLASSE_CIRURGIA if eh_cirurgia(p.procedimento) else SUBCLASSE_PROCEDIMENTO
+    return SUBCLASSE_INDEFINIDA
 
 
 def classificar(procedimento: str, convenio: str = '') -> str:
