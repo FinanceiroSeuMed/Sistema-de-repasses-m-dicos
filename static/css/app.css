@@ -243,6 +243,8 @@ body {
 .subgrupo td { background: #f2f6fb; padding-top: 7px; padding-bottom: 7px; }
 .subgrupo:hover td { background: #f2f6fb; }
 .bloco-anestesista { border-left: 3px solid #0b5fa5; padding-left: 14px; }
+.lista-auditoria { margin: 4px 0 0; padding-left: 20px; }
+.lista-auditoria li { font-size: 13px; color: var(--texto-suave); margin: 3px 0; }
 .linha-inativa { opacity: .5; }
 .acoes-linha { display: flex; gap: 6px; }
 .acoes-linha form { margin: 0; }

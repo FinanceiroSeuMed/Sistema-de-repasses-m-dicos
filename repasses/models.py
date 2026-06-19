@@ -143,6 +143,7 @@ class RepasseRascunho(models.Model):
     de uma vez. A memória é zerada quando um novo repasse é importado."""
 
     token = models.CharField('Token do upload', max_length=40, unique=True, db_index=True)
+    arquivo_nome = models.CharField('Arquivo importado', max_length=255, blank=True)
     dados = models.JSONField('Edições', default=dict)
     atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
 
@@ -152,3 +153,40 @@ class RepasseRascunho(models.Model):
 
     def __str__(self):
         return f'Rascunho {self.token} ({len(self.dados)} campos)'
+
+
+class Lote(models.Model):
+    """Registro de um processamento exportado — o histórico/auditoria do sistema.
+
+    Cada exportação vira (ou atualiza) um lote ligado ao arquivo importado: guarda
+    quando, quem, o período, os totais, os arquivos gerados (para re-baixar sem
+    subir de novo), o que foi ajustado manualmente (auditoria) e as "impressões
+    digitais" dos atendimentos (para avisar se algo já saiu num lote anterior)."""
+
+    token = models.CharField('Token do upload', max_length=40, unique=True, db_index=True)
+    criado_em = models.DateTimeField('Criado em', auto_now_add=True)
+    atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
+    criado_por = models.CharField('Por', max_length=150, blank=True)
+
+    arquivo_nome = models.CharField('Arquivo importado', max_length=255, blank=True)
+    unidade = models.CharField('Unidade', max_length=200, blank=True)
+    periodo_inicio = models.DateField('Início', null=True, blank=True)
+    periodo_fim = models.DateField('Fim', null=True, blank=True)
+
+    n_medicos = models.PositiveIntegerField('Médicos', default=0)
+    n_repasses = models.PositiveIntegerField('Repasses', default=0)
+    total_pagar = models.DecimalField('Total a pagar', max_digits=12, decimal_places=2, default=0)
+    total_receber = models.DecimalField('Total a receber', max_digits=12, decimal_places=2, default=0)
+
+    pasta_saida = models.CharField('Pasta de saída', max_length=120, blank=True)
+    downloads = models.JSONField('Arquivos gerados', default=list)   # [{grupo, arquivo}]
+    auditoria = models.JSONField('Ajustes manuais', default=list)    # lista de textos
+    fingerprints = models.JSONField('Atendimentos', default=list)    # p/ duplicidade
+
+    class Meta:
+        verbose_name = 'Lote (histórico)'
+        verbose_name_plural = 'Lotes (histórico)'
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        return f'Lote {self.id} — {self.arquivo_nome or self.token} ({self.criado_em:%d/%m/%Y})'

@@ -9,7 +9,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import CorrecaoMemorizada, Medico, RepasseRascunho
+from .models import CorrecaoMemorizada, Lote, Medico, RepasseRascunho
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -108,6 +108,7 @@ def _preparar_revisao(token):
     if caminho is None:
         return None, None, {}
     resultado, aviso = _ler_e_processar(caminho, token)
+    resultado.log_edicoes = []          # auditoria: ajustes manuais de honorário
     dados = _carregar_rascunho(token)
     _aplicar_edicoes(resultado, dados)
     _resolver_anestesistas(resultado, dados)
@@ -303,6 +304,10 @@ def _aplicar_edicoes(resultado, post):
             original = p.honorario if p.honorario is not None else None
             if original is not None and round(float(original), 2) == round(float(valor), 2):
                 continue  # inalterado — preserva a precisão cheia do cálculo
+            antes = 'R$ %.2f' % float(original) if original is not None else '—'
+            resultado.log_edicoes.append(
+                f'Honorário: {bloco.profissional} — "{p.procedimento[:40]}" '
+                f'({p.convenio or "s/ convênio"}) {antes} → R$ %.2f' % valor)
             p.honorario = valor
             p.status_calculo = 'calculado' if valor > 0 else 'nao_recebe'
             p.motivo_calculo = 'Editado manualmente na revisão.'
@@ -454,6 +459,7 @@ def importar(request):
             token = _salvar_upload(arquivo)
             # Novo repasse importado -> zera a memória de edições do anterior.
             RepasseRascunho.objects.all().delete()
+            RepasseRascunho.objects.create(token=token, arquivo_nome=(arquivo.name or ''), dados={})
             try:
                 resultado, aviso, dados = _preparar_revisao(token)
             except medplus.ErroLeituraMedPlus as exc:
@@ -483,7 +489,7 @@ def salvar(request):
 
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,
-                 info=None, edicoes=None):
+                 info=None, edicoes=None, avisos=None):
     cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
                  if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
     return {
@@ -492,6 +498,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'aviso_regras': aviso,
         'pendencias': pendencias if pendencias is not None else _pendencias_revisao(resultado),
         'info': info or [],
+        'avisos': avisos or [],
         'edicoes': edicoes or {},
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
@@ -521,8 +528,10 @@ def exportar(request):
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
+    avisos_dup = _registrar_lote(request, token, resultado, dados, pasta_saida, downloads)
     pendencias = _resumir_pendencias(pend)
-    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias, info, edicoes=dados)
+    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
+                       info=info, edicoes=dados, avisos=avisos_dup)
     return render(request, 'repasses/revisao.html', ctx)
 
 
@@ -592,6 +601,108 @@ def baixar_saida(request, pasta, arquivo):
     if base not in caminho.parents or not caminho.is_file():
         raise Http404('Arquivo não encontrado.')
     return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=arquivo)
+
+
+# --- Histórico de lotes + auditoria -------------------------------------------
+
+def _arquivo_nome(token):
+    r = RepasseRascunho.objects.filter(token=token).first()
+    return (r.arquivo_nome if r else '') or ''
+
+
+def _fingerprint(p, profissional):
+    """Impressão digital de um atendimento, para detectar duplicidade entre lotes."""
+    return '|'.join([
+        p.data.isoformat() if p.data else '',
+        regras.normalizar(profissional),
+        regras.normalizar(p.clinica or ''),
+        regras.normalizar(p.procedimento),
+        regras.normalizar(p.convenio or ''),
+        ('%.2f' % float(p.valor)) if p.valor is not None else '',
+    ])
+
+
+def _auditoria_lote(resultado, dados):
+    """Lista legível dos ajustes manuais — a trilha de auditoria do lote."""
+    itens = list(getattr(resultado, 'log_edicoes', []))
+    for a in resultado.anestesistas:
+        extra = f' (+{a["horas"]}h extra)' if a.get('horas') else ''
+        itens.append(f'Anestesista: {a["anestesista"]} em {a["cirurgiao"]}{extra} — '
+                     + ('R$ %.2f' % float(a.get('valor') or 0)))
+    for chave, val in dados.items():
+        if chave.startswith('cat_modo_') and val:
+            itens.append(f'Catarata definida: {val}.')
+        elif chave.startswith('preceptoria_') and val:
+            itens.append(f'Preceptoria informada: R$ {val}.')
+    return itens
+
+
+def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
+    """Cria/atualiza o lote (histórico) da exportação e devolve avisos de
+    duplicidade (atendimentos que já saíram em lote de outro arquivo)."""
+    fps, medicos, n_repasses = [], set(), 0
+    total_pagar = 0.0
+    for b in resultado.blocos:
+        pagaveis = [p for p in b.procedimentos
+                    if p.status_calculo == 'calculado' and (p.honorario or 0) > 0]
+        if pagaveis:
+            medicos.add(regras.normalizar(b.profissional))
+            n_repasses += 1
+        for p in pagaveis:
+            total_pagar += p.honorario
+            fps.append(_fingerprint(p, b.profissional))
+    for a in resultado.anestesistas:
+        total_pagar += a.get('valor') or 0
+        n_repasses += 1
+    total_receber = sum(float(p.valor) for b in resultado.blocos for p in b.procedimentos
+                        if p.valor is not None)
+    datas = [p.data for b in resultado.blocos for p in b.procedimentos if p.data]
+    arq_nome = _arquivo_nome(token)
+    quem = request.user.get_username() if request.user.is_authenticated else 'diretoria'
+
+    # Duplicidade: atendimentos que já apareceram em lote de OUTRO arquivo.
+    avisos, novos = [], set(fps)
+    for lote in Lote.objects.exclude(token=token):
+        if lote.arquivo_nome and lote.arquivo_nome == arq_nome:
+            continue  # mesmo arquivo (re-exportação) não é duplicidade
+        overlap = novos & set(lote.fingerprints or [])
+        if overlap:
+            avisos.append(f'⚠️ {len(overlap)} atendimento(s) já saíram no lote #{lote.id} '
+                          f'({lote.arquivo_nome or "?"}, {lote.criado_em:%d/%m/%Y}) — '
+                          'confira para não pagar 2×.')
+
+    Lote.objects.update_or_create(token=token, defaults={
+        'criado_por': quem, 'arquivo_nome': arq_nome, 'unidade': resultado.unidade or '',
+        'periodo_inicio': min(datas) if datas else None,
+        'periodo_fim': max(datas) if datas else None,
+        'n_medicos': len(medicos), 'n_repasses': n_repasses,
+        'total_pagar': round(total_pagar, 2), 'total_receber': round(total_receber, 2),
+        'pasta_saida': pasta_saida, 'downloads': downloads,
+        'auditoria': _auditoria_lote(resultado, dados), 'fingerprints': fps,
+    })
+    return avisos
+
+
+def lotes_lista(request):
+    """Histórico de lotes processados."""
+    lotes = list(Lote.objects.all())
+    return render(request, 'repasses/lotes.html', {
+        'lotes': lotes,
+        'total': len(lotes),
+        'total_pagar': sum((l.total_pagar for l in lotes), 0),
+    })
+
+
+def lote_detalhe(request, pk):
+    """Detalhe de um lote: re-baixar os arquivos + auditoria dos ajustes."""
+    lote = get_object_or_404(Lote, pk=pk)
+    base = Path(settings.SAIDAS_DIR) / lote.pasta_saida
+    downloads = [dict(d, existe=(base / d['arquivo']).is_file()) for d in lote.downloads]
+    return render(request, 'repasses/lote_detalhe.html', {
+        'lote': lote,
+        'downloads': downloads,
+        'algum_sumiu': any(not d['existe'] for d in downloads),
+    })
 
 
 # --- Correções memorizadas ----------------------------------------------------

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Histórico de lotes{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Histórico de lotes</h1>
+    <p class="subtitulo-escuro">
+        Cada exportação fica registrada aqui — você pode <strong>reabrir e re-baixar</strong> os
+        arquivos sem subir o relatório de novo, e conferir <strong>o que foi ajustado à mão</strong>.
+        Ao exportar, o sistema também <strong>avisa</strong> se algum atendimento já saiu num lote anterior.
+    </p>
+</section>
+
+<section class="cards-indicadores">
+    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Lotes</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_pagar|moeda }}</span><span class="rotulo">Total a pagar (todos)</span></div>
+</section>
+
+{% if lotes %}
+<section class="bloco-medico">
+    <table class="tabela">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Quando</th>
+                <th>Arquivo</th>
+                <th>Período</th>
+                <th class="num">Médicos</th>
+                <th class="num">A pagar</th>
+                <th class="num">A receber</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in lotes %}
+            <tr>
+                <td>{{ l.id }}</td>
+                <td>{{ l.criado_em|date:"d/m/Y H:i" }}<br><small>{{ l.criado_por }}</small></td>
+                <td>{{ l.arquivo_nome|default:"—" }}<br><small>{{ l.unidade }}</small></td>
+                <td>{% if l.periodo_inicio %}{{ l.periodo_inicio|date:"d/m" }}–{{ l.periodo_fim|date:"d/m" }}{% else %}—{% endif %}</td>
+                <td class="num">{{ l.n_medicos }}</td>
+                <td class="num">{{ l.total_pagar|moeda }}</td>
+                <td class="num">{{ l.total_receber|moeda }}</td>
+                <td><a class="botao botao-mini" href="{% url 'repasses:lote_detalhe' l.id %}">Abrir</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+<div class="alerta alerta-info">
+    Nenhum lote ainda. Ao <a href="{% url 'repasses:importar' %}">importar</a> e <strong>exportar</strong> um
+    repasse, ele aparece aqui para reabrir e re-baixar depois.
+</div>
+{% endif %}
+{% endblock %}

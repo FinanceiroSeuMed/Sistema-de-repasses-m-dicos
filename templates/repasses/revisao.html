@@ -21,6 +21,7 @@
 </section>
 {% endif %}
 
+{% for msg in avisos %}<div class="alerta alerta-aviso">{{ msg }}</div>{% endfor %}
 {% for msg in info %}<div class="alerta alerta-ok">{{ msg }}</div>{% endfor %}
 
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}

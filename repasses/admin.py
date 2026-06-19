@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CorrecaoMemorizada, Medico
+from .models import CorrecaoMemorizada, Lote, Medico
 
 
 @admin.register(Medico)
@@ -39,3 +39,15 @@ class CorrecaoMemorizadaAdmin(admin.ModelAdmin):
     fields = ('procedimento', 'convenio', 'medico', ('tipo', 'valor'), 'ativo',
               'origem', 'observacao', ('proc_norm', 'conv_norm', 'medico_norm'),
               ('criado_em', 'atualizado_em'))
+
+
+@admin.register(Lote)
+class LoteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'criado_em', 'arquivo_nome', 'unidade', 'n_medicos',
+                    'total_pagar', 'total_receber', 'criado_por')
+    list_filter = ('unidade', 'criado_por')
+    search_fields = ('arquivo_nome', 'unidade', 'token')
+    readonly_fields = ('token', 'criado_em', 'atualizado_em', 'criado_por', 'arquivo_nome',
+                       'unidade', 'periodo_inicio', 'periodo_fim', 'n_medicos', 'n_repasses',
+                       'total_pagar', 'total_receber', 'pasta_saida', 'downloads',
+                       'auditoria', 'fingerprints')
