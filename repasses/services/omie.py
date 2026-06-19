@@ -72,7 +72,12 @@ def _fmt(d: date) -> str:
 
 
 def _escrever(modelo_path, linhas: list[dict]) -> tuple[bytes, int]:
-    """linhas: lista de dicts com chaves nome, categoria, valor, registro, vencimento."""
+    """linhas: lista de dicts com chaves nome, categoria, valor, registro, vencimento.
+
+    Preserva a formatação do template oficial: datas vão como VALOR de data real
+    (não texto) com formato dd/mm/aaaa, e o valor como número 18,2 — para a OMIE
+    importar sem erro de formato.
+    """
     wb = load_workbook(modelo_path)
     ws = wb[wb.sheetnames[0]]
     r = LINHA_INICIAL
@@ -80,9 +85,12 @@ def _escrever(modelo_path, linhas: list[dict]) -> tuple[bytes, int]:
         ws.cell(row=r, column=COL_NOME, value=ln['nome'])
         ws.cell(row=r, column=COL_CATEGORIA, value=ln['categoria'])
         ws.cell(row=r, column=COL_CONTA, value=CONTA_CORRENTE)
-        ws.cell(row=r, column=COL_VALOR, value=round(ln['valor'], 2))
-        ws.cell(row=r, column=COL_REGISTRO, value=_fmt(ln['registro']))
-        ws.cell(row=r, column=COL_VENCIMENTO, value=_fmt(ln['vencimento']))
+        cval = ws.cell(row=r, column=COL_VALOR, value=round(float(ln['valor']), 2))
+        cval.number_format = '0.00'
+        for col in (COL_REGISTRO, COL_VENCIMENTO):
+            chave = 'registro' if col == COL_REGISTRO else 'vencimento'
+            cel = ws.cell(row=r, column=col, value=ln[chave])  # objeto date, não string
+            cel.number_format = 'DD/MM/YYYY'
         r += 1
     buf = io.BytesIO()
     wb.save(buf)
