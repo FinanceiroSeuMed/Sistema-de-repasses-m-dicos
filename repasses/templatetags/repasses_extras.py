@@ -17,6 +17,35 @@ def moeda(valor):
 
 
 @register.filter
+def valor2(valor):
+    """Valor com 2 casas e ponto decimal, para o atributo value de inputs.
+
+    O honorário é guardado em precisão cheia (para a soma fechar), mas o campo
+    editável mostra só 2 casas. Se o usuário não mexer, volta esse valor de 2
+    casas, e a view preserva a precisão original (não sobrescreve)."""
+    if valor is None or valor == '':
+        return ''
+    try:
+        return f'{float(valor):.2f}'
+    except (TypeError, ValueError):
+        return valor
+
+
+@register.filter
+def valor_exato(valor):
+    """Valor em precisão cheia (ponto decimal) para um data-attribute.
+
+    O total ao vivo soma estes valores exatos nas linhas não editadas, para o
+    total da tela bater com o total exportado (soma sem arredondar por linha)."""
+    if valor is None or valor == '':
+        return ''
+    try:
+        return repr(float(valor))
+    except (TypeError, ValueError):
+        return ''
+
+
+@register.filter
 def slug_status(valor):
     """Sufixo CSS para o status do cálculo."""
     return {

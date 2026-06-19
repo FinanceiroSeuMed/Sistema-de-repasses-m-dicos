@@ -138,7 +138,8 @@
                         </select>
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
-                               value="{{ p.honorario|default_if_none:'' }}" placeholder="—"
+                               value="{{ p.honorario|valor2 }}" placeholder="—"
+                               data-exato="{{ p.honorario|valor_exato }}"
                                title="{{ p.motivo_calculo }}">
                         {% endif %}
                     </td>
@@ -186,10 +187,19 @@
     function paraReais(v) {
         return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+    function valorLinha(inp) {
+        // Linha não editada: usa o valor exato (precisão cheia) para o total da
+        // tela bater com o exportado. Editada: usa o que o usuário digitou.
+        if (inp.dataset.tocado !== '1' && inp.dataset.exato) {
+            var ex = parseFloat(inp.dataset.exato);
+            if (!isNaN(ex)) return ex;
+        }
+        return paraNumero(inp.value);
+    }
     function recalcular(tabela) {
         var total = 0, linhas = 0;
         tabela.querySelectorAll('input.inp-hon').forEach(function (inp) {
-            var v = paraNumero(inp.value);
+            var v = valorLinha(inp);
             if (v > 0) { total += v; linhas += 1; }
         });
         var cel = tabela.querySelector('.total-bloco');
@@ -199,7 +209,10 @@
     }
     document.querySelectorAll('table.tabela').forEach(function (tabela) {
         tabela.addEventListener('input', function (e) {
-            if (e.target.classList && e.target.classList.contains('inp-hon')) recalcular(tabela);
+            if (e.target.classList && e.target.classList.contains('inp-hon')) {
+                e.target.dataset.tocado = '1';
+                recalcular(tabela);
+            }
         });
         recalcular(tabela);
     });

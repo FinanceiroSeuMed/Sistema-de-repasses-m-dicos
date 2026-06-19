@@ -16,6 +16,7 @@ Regras definidas pela diretoria:
 from __future__ import annotations
 
 import io
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -46,6 +47,20 @@ COL_CONTA = 5       # E
 COL_VALOR = 6       # F
 COL_REGISTRO = 10   # J: Data de Registro
 COL_VENCIMENTO = 11 # K: Data de Vencimento
+COL_OBSERVACOES = 19            # S: Observações (igual nos dois modelos)
+COL_DEPARTAMENTO_PAGAR = 50     # Departamento (100%) — modelo a pagar
+COL_DEPARTAMENTO_RECEBER = 42   # Departamento (100%) — modelo a receber
+
+_RE_SUFIXO = re.compile(r'\s*\([^)]*\)\s*$')
+
+
+def _sem_sufixo(nome: str) -> str:
+    """Remove o sufixo de unidade entre parênteses do nome do profissional.
+
+    "Dr. Carlos Eduardo (PR2)" -> "Dr. Carlos Eduardo" (a clínica já vai no
+    Departamento; na observação fica só o nome do médico).
+    """
+    return _RE_SUFIXO.sub('', nome or '').strip()
 
 
 @dataclass
@@ -71,12 +86,13 @@ def _fmt(d: date) -> str:
     return d.strftime('%d/%m/%Y')
 
 
-def _escrever(modelo_path, linhas: list[dict]) -> tuple[bytes, int]:
-    """linhas: lista de dicts com chaves nome, categoria, valor, registro, vencimento.
+def _escrever(modelo_path, linhas: list[dict], col_departamento: int) -> tuple[bytes, int]:
+    """linhas: dicts com nome, categoria, valor, registro, vencimento, observacao, departamento.
 
     Preserva a formatação do template oficial: datas vão como VALOR de data real
     (não texto) com formato dd/mm/aaaa, e o valor como número 18,2 — para a OMIE
-    importar sem erro de formato.
+    importar sem erro de formato. A coluna de Departamento difere entre os dois
+    modelos (a pagar e a receber), por isso vem como parâmetro.
     """
     wb = load_workbook(modelo_path)
     ws = wb[wb.sheetnames[0]]
@@ -91,6 +107,10 @@ def _escrever(modelo_path, linhas: list[dict]) -> tuple[bytes, int]:
             chave = 'registro' if col == COL_REGISTRO else 'vencimento'
             cel = ws.cell(row=r, column=col, value=ln[chave])  # objeto date, não string
             cel.number_format = 'DD/MM/YYYY'
+        if ln.get('observacao'):
+            ws.cell(row=r, column=COL_OBSERVACOES, value=ln['observacao'])
+        if ln.get('departamento'):
+            ws.cell(row=r, column=col_departamento, value=ln['departamento'])
         r += 1
     buf = io.BytesIO()
     wb.save(buf)
@@ -98,39 +118,52 @@ def _escrever(modelo_path, linhas: list[dict]) -> tuple[bytes, int]:
 
 
 def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
+    """Uma linha por (médico × dia × clínica × classe).
+
+    Cada bloco já representa um médico em um dia numa clínica; dentro do bloco
+    somamos por classe (cirurgia/exame/preceptoria). Se o Dr. atende em duas
+    clínicas em dois dias, saem quatro repasses — quatro linhas no a pagar.
+    Observação = "Repasse dd/mm Nome do Dr."; Departamento = nome da clínica.
+    """
     ref = _data_referencia(resultado)
-    venc = venc_dia10_mes_seguinte(ref)
     pendencias = []
-    grupos = defaultdict(float)        # (medico, razao, classe) -> soma honorario
+    linhas = []
     for bloco in resultado.blocos:
         nome_forn = bloco.razao_social or bloco.profissional
         if not bloco.razao_social:
             pendencias.append(f'{bloco.profissional}: sem Razão Social (usado o nome) — confira na OMIE.')
+        dia = bloco.data or ref
+        venc = venc_dia10_mes_seguinte(dia)
+        medico = _sem_sufixo(bloco.profissional)
+        observacao = f'Repasse {dia.strftime("%d/%m")} {medico}'
+        por_classe = defaultdict(float)    # classe -> soma honorário (precisão cheia)
         for p in bloco.procedimentos:
             if p.classe in CLASSES_FORA_DO_PAGAR:
                 continue  # taxa de sala só vai no a receber
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
-                grupos[(nome_forn, p.classe)] += p.honorario
+                por_classe[p.classe] += p.honorario
             elif p.status_calculo == 'a_definir':
                 pendencias.append(f'{bloco.profissional}: "{p.procedimento[:40]}" a definir — não entrou no a pagar.')
+        for classe, soma in por_classe.items():
+            categoria = CATEGORIA_POR_CLASSE.get(classe, '')
+            if not categoria:
+                pendencias.append(f'Classe "{classe}" sem categoria OMIE definida — linha de {nome_forn} ficou sem categoria.')
+            linhas.append({'nome': nome_forn, 'categoria': categoria, 'valor': soma,
+                           'registro': dia, 'vencimento': venc,
+                           'observacao': observacao, 'departamento': bloco.clinica})
 
-    linhas = []
-    for (nome, classe), soma in grupos.items():
-        categoria = CATEGORIA_POR_CLASSE.get(classe, '')
-        if not categoria:
-            pendencias.append(f'Classe "{classe}" sem categoria OMIE definida — linha de {nome} ficou sem categoria.')
-        linhas.append({'nome': nome, 'categoria': categoria, 'valor': soma,
-                       'registro': ref, 'vencimento': venc})
-
-    # Linhas dos anestesistas (categoria própria)
+    # Linhas dos anestesistas (categoria própria) — uma por atendimento/dia
     for a in getattr(resultado, 'anestesistas', []):
-        d = a.get('data') or ref
+        dia = a.get('data') or ref
+        anest = _sem_sufixo(a.get('anestesista', ''))
         linhas.append({'nome': a.get('razao_social') or a.get('anestesista'),
                        'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
-                       'registro': d, 'vencimento': venc_dia10_mes_seguinte(d)})
+                       'registro': dia, 'vencimento': venc_dia10_mes_seguinte(dia),
+                       'observacao': f'Repasse {dia.strftime("%d/%m")} {anest}',
+                       'departamento': a.get('clinica', '')})
 
-    linhas.sort(key=lambda x: (x['nome'], x['categoria']))
-    conteudo, n = _escrever(modelo_path, linhas)
+    linhas.sort(key=lambda x: (str(x['registro']), x['departamento'] or '', x['nome'], x['categoria']))
+    conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_PAGAR)
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
 
 
@@ -172,26 +205,32 @@ def categoria_receber(p, fallback='Outras Receitas com Serviços') -> str:
 
 
 def gerar_contas_receber(resultado, modelo_path, categoria_fallback='Outras Receitas com Serviços') -> ResultadoSaida:
+    """Uma linha por (dia × clínica) — recebimento geral dos pacientes.
+
+    Soma o valor bruto de todos os atendimentos daquele dia naquela clínica.
+    Observação = "Recebimento de atendimentos dd/mm Clínica"; Departamento = clínica.
+    """
     ref = _data_referencia(resultado)
-    venc = venc_dia10_mes_seguinte(ref)
     pendencias = []
-    grupos = defaultdict(float)        # (convênio, categoria) -> soma valor bruto
+    grupos = defaultdict(float)        # (dia, clínica) -> soma valor bruto
     sem_valor = 0
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
             if p.valor is None:
                 sem_valor += 1
                 continue
-            convenio = p.convenio or '(sem convênio)'
-            cat = categoria_receber(p, categoria_fallback)
-            grupos[(convenio, cat)] += p.valor
+            grupos[(bloco.data, bloco.clinica or '')] += p.valor
     if sem_valor:
         pendencias.append(f'{sem_valor} procedimento(s) sem valor bruto (arquivo do médico não traz o valor) — '
                           'use o relatório completo da MedPlus para o contas a receber.')
 
     linhas = []
-    for (convenio, cat), soma in sorted(grupos.items()):
-        linhas.append({'nome': convenio, 'categoria': cat, 'valor': soma,
-                       'registro': ref, 'vencimento': venc})
-    conteudo, n = _escrever(modelo_path, linhas)
+    for (dia, clinica), soma in sorted(grupos.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        d = dia or ref
+        rotulo = f' {clinica}' if clinica else ''
+        linhas.append({'nome': clinica or 'Pacientes', 'categoria': categoria_fallback,
+                       'valor': soma, 'registro': d, 'vencimento': venc_dia10_mes_seguinte(d),
+                       'observacao': f'Recebimento de atendimentos {d.strftime("%d/%m")}{rotulo}',
+                       'departamento': clinica})
+    conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_RECEBER)
     return ResultadoSaida('OMIE_Contas_a_Receber.xlsx', conteudo, n, pendencias)

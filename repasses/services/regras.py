@@ -432,7 +432,10 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
         if valor is None:
             return ResultadoCalculo(A_DEFINIR, None, motivo='Percentual sem valor bruto informado.',
                                     regra=regra.nome, tipo=tipo)
-        return ResultadoCalculo(CALCULADO, round(float(valor) * val, 2),
+        # Sem arredondar: guarda o valor em precisão cheia para a soma fechar
+        # centavo a centavo. O arredondamento para Reais (2 casas) é feito só na
+        # exibição e na escrita do valor final.
+        return ResultadoCalculo(CALCULADO, float(valor) * val,
                                 motivo=f'{val*100:.0f}% de {valor} (regra "{regra.nome}").',
                                 regra=regra.nome, tipo=tipo)
     # FIXO

@@ -230,7 +230,14 @@ def _num(texto):
 
 
 def _aplicar_edicoes(resultado, post):
-    """Aplica as edições feitas na tela de revisão (honorário e classe)."""
+    """Aplica as edições feitas na tela de revisão (honorário e classe).
+
+    O honorário calculado é mantido em precisão cheia (sem arredondar) para que a
+    soma final feche centavo a centavo. A tela mostra o valor com 2 casas; se o
+    usuário NÃO mexeu no campo, o que volta no POST é esse valor arredondado —
+    então só sobrescrevemos quando ele difere do arredondado do original, senão
+    perderíamos as casas extras a cada exportação.
+    """
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
             if p.status_calculo == regras.CATARATA:
@@ -239,10 +246,14 @@ def _aplicar_edicoes(resultado, post):
             if classe:
                 p.classe = classe
             valor = _num(post.get(f'hon_{p.idx}'))
-            if valor is not None:
-                p.honorario = valor
-                p.status_calculo = 'calculado' if valor > 0 else 'nao_recebe'
-                p.motivo_calculo = 'Editado manualmente na revisão.'
+            if valor is None:
+                continue
+            original = p.honorario if p.honorario is not None else None
+            if original is not None and round(float(original), 2) == round(float(valor), 2):
+                continue  # inalterado — preserva a precisão cheia do cálculo
+            p.honorario = valor
+            p.status_calculo = 'calculado' if valor > 0 else 'nao_recebe'
+            p.motivo_calculo = 'Editado manualmente na revisão.'
 
 
 def _resolver_cirurgias(resultado, post):
@@ -329,6 +340,7 @@ def _resolver_anestesistas(resultado, post):
             'anestesista': nome,
             'razao_social': m.razao_social if m else '',
             'cirurgiao': bloco.profissional,
+            'clinica': getattr(bloco, 'clinica', '') or '',
             'data': max(datas) if datas else None,
             'valor': valor,
             'cirurgias': cirurgias,
@@ -430,45 +442,36 @@ def exportar(request):
 
 
 def _gerar_arquivos_por_dia(resultado):
-    """Gera os arquivos (OMIE + repasses), SEPARADOS por dia quando há mais de um."""
-    from collections import defaultdict
-    blocos_por_dia = defaultdict(list)
-    for bloco in resultado.blocos:
-        blocos_por_dia[bloco.data].append(bloco)
-    anest_por_dia = defaultdict(list)
-    for a in resultado.anestesistas:
-        anest_por_dia[a.get('data')].append(a)
+    """Gera os arquivos de saída.
 
-    dias = sorted([d for d in blocos_por_dia if d is not None])
-    if None in blocos_por_dia:
-        dias.append(None)
-    multi = len(dias) > 1
+    OMIE: UM contas a pagar + UM contas a receber para todo o período — cada
+    linha já carrega sua própria data (registro/vencimento) e a observação com a
+    data abreviada, então não há mais necessidade de separar os arquivos por dia.
+    O a pagar sai com uma linha por (médico × dia × clínica × classe) e o a
+    receber com uma linha por (dia × clínica).
 
+    Repasses (Excel + PDF): um por bloco, ou seja, por médico/dia/clínica.
+    """
     arquivos, pend = [], []
-    for d in dias:
-        dia_str = d.strftime('%d-%m') if d else 'sem-data'
-        sufixo = f'_{dia_str}' if multi else ''
-        sub = medplus.ResultadoImportacao(unidade=resultado.unidade,
-                                          blocos=blocos_por_dia[d],
-                                          anestesistas=anest_por_dia.get(d, []))
-        pagar = omie.gerar_contas_pagar(sub, settings.OMIE_PAGAR_TEMPLATE)
-        receber = omie.gerar_contas_receber(sub, settings.OMIE_RECEBER_TEMPLATE,
-                                            settings.OMIE_CATEGORIA_RECEBER)
-        gomie = f'Importação OMIE — {dia_str}' if multi else 'Importação OMIE'
-        arquivos.append((gomie, f'OMIE_Contas_a_Pagar{sufixo}.xlsx', pagar.conteudo))
-        arquivos.append((gomie, f'OMIE_Contas_a_Receber{sufixo}.xlsx', receber.conteudo))
-        pend += pagar.pendencias + receber.pendencias
-        for bloco in blocos_por_dia[d]:
-            if not repasse.pagaveis(bloco):
-                continue
-            base = repasse.nome_base(bloco)
-            grupo = f'Repasse — {bloco.profissional}'
-            arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
-            arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
-        for a in anest_por_dia.get(d, []):
-            base = repasse.nome_base_anestesista(a)
-            grupo = f'Anestesista — {a["anestesista"]}'
-            arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
+
+    pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
+    receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE,
+                                        settings.OMIE_CATEGORIA_RECEBER)
+    arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Pagar.xlsx', pagar.conteudo))
+    arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Receber.xlsx', receber.conteudo))
+    pend += pagar.pendencias + receber.pendencias
+
+    for bloco in resultado.blocos:
+        if not repasse.pagaveis(bloco):
+            continue
+        base = repasse.nome_base(bloco)
+        grupo = f'Repasse — {bloco.profissional}'
+        arquivos.append((grupo, f'{base}.xlsx', repasse.gerar_excel(bloco, resultado.unidade)))
+        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf(bloco, resultado.unidade)))
+    for a in resultado.anestesistas:
+        base = repasse.nome_base_anestesista(a)
+        grupo = f'Anestesista — {a["anestesista"]}'
+        arquivos.append((grupo, f'{base}.pdf', repasse.gerar_pdf_anestesista(a, resultado.unidade)))
     return arquivos, pend
 
 
