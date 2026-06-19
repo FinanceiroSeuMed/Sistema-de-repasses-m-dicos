@@ -93,6 +93,7 @@ class Procedimento:
     status_calculo: str = ''         # calculado / nao_recebe / a_definir
     motivo_calculo: str = ''
     idx: int = 0                     # índice estável da linha (para edição na revisão)
+    eh_catarata_part: bool = False   # catarata particular resolvida (mantém o seletor na tela)
 
 
 @dataclass
@@ -170,6 +171,7 @@ class BlocoMedico:
     data: date | None = None          # dia do bloco (após separar por dia)
     clinica: str = ''                 # filial do bloco (após separar por clínica)
     preceptoria_valor: float | None = None  # valor de preceptoria semanal sugerido
+    participacao: bool = False        # bloco só de participação do fellow em catarata
 
 
 @dataclass

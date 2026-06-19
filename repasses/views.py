@@ -116,6 +116,9 @@ def _preparar_revisao(token):
     dados = _carregar_rascunho(token)
     _aplicar_edicoes(resultado, dados)
     _resolver_anestesistas(resultado, dados)
+    # Resolve a catarata particular JÁ no preview: quando o usuário declara à
+    # vista/parcelado, o valor entra no total e o repasse do fellow (40%) aparece.
+    _resolver_cirurgias(resultado, dados)
     _anotar_selecoes(resultado, dados)
     return resultado, aviso, dados
 
@@ -339,25 +342,28 @@ def _resolver_cirurgias(resultado, post):
                     data=p.data, data_texto=p.data_texto, paciente=p.paciente,
                     procedimento=f'{p.procedimento} (participação em cirurgia)',
                     convenio=p.convenio, quantidade=p.quantidade, valor=p.valor,
-                    honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA)
+                    honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA, hora=p.hora)
                 linha.honorario = round(total * regras.FELLOW_PERCENTUAL, 2)
                 linha.status_calculo = 'calculado'
                 linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
-                extras[(fellow, p.data)].append(linha)
+                extras[(fellow, p.data, p.clinica)].append(linha)
             else:
                 p.honorario = round(total, 2)
                 p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 100% (sem fellow).'
             p.status_calculo = 'calculado'
+            p.eh_catarata_part = True   # mantém o seletor à vista/parcelado na tela
 
-    for (fellow, data), linhas in extras.items():
+    for (fellow, data, clinica), linhas in extras.items():
         bloco = next((b for b in resultado.blocos
                       if regras.normalizar(b.profissional) == regras.normalizar(fellow)
-                      and b.data == data), None)
+                      and b.data == data and (b.clinica or '') == (clinica or '')), None)
         if bloco is None:
             m = Medico.objects.filter(nome=fellow).first()
             bloco = medplus.BlocoMedico(profissional=fellow,
                                         razao_social=(m.razao_social if m else ''))
             bloco.data = data
+            bloco.clinica = clinica
+            bloco.participacao = True   # bloco só de participação em catarata (sem caixa de anestesista)
             resultado.blocos.append(bloco)
         bloco.procedimentos.extend(linhas)
 
@@ -586,10 +592,9 @@ def exportar(request):
         raise Http404('Arquivo da importação não encontrado — refaça o upload.')
 
     _salvar_rascunho(token, request.POST)               # persiste as edições
-    resultado, aviso, dados = _preparar_revisao(token)  # reaplica edições + anestesistas
+    resultado, aviso, dados = _preparar_revisao(token)  # reaplica edições + anestesistas + catarata
     info = _memorizar_correcoes(resultado, request.POST)
-    _resolver_preceptoria(resultado, dados)
-    _resolver_cirurgias(resultado, dados)
+    _resolver_preceptoria(resultado, dados)             # cirurgias já resolvidas em _preparar_revisao
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)

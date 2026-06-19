@@ -101,7 +101,7 @@
         </div>
         {% endif %}
 
-        {% if bloco.tem_cirurgia %}
+        {% if bloco.tem_cirurgia and not bloco.participacao %}
         <div class="anestesista-box">
             <strong>🔵 Houve anestesista nesta cirurgia?</strong>
             <span class="campo-inline">
@@ -134,12 +134,13 @@
                     <td class="num">{{ p.quantidade }}</td>
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
-                        {% if p.status_calculo == 'catarata' %}
+                        {% if p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select class="inp-classe" name="cat_modo_{{ p.idx }}">
                             <option value="">à vista/parcelado?</option>
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
                             <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
                         </select>
+                        <div class="cat-valor" data-valor="{{ p.honorario|valor_exato }}" title="{{ p.motivo_calculo }}">{% if p.honorario %}{{ p.honorario|moeda }}{% else %}declare a forma{% endif %}</div>
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
                                value="{{ p.honorario|valor2 }}" placeholder="—"
@@ -152,7 +153,7 @@
                     </td>
                     <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span>{% if 'memorizada' in p.motivo_calculo %} <span class="badge badge-memo" title="{{ p.motivo_calculo }}">memorizado</span>{% endif %}</td>
                     <td>
-                        {% if p.status_calculo == 'catarata' %}
+                        {% if p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select class="inp-classe" name="cat_fellow_{{ p.idx }}">
                             <option value="">sem fellow</option>
                             {% for f in fellows %}<option value="{{ f.nome }}"{% if f.nome == p.sel_cat_fellow %} selected{% endif %}>{{ f.nome }}</option>{% endfor %}
@@ -242,6 +243,11 @@
         tabela.querySelectorAll('input.inp-hon').forEach(function (inp) {
             var v = valorLinha(inp);
             if (v > 0) { total += v; linhas += 1; }
+        });
+        // catarata particular: valor já resolvido (à vista/parcelado), fora dos inputs
+        tabela.querySelectorAll('.cat-valor').forEach(function (el) {
+            var v = parseFloat(el.dataset.valor);
+            if (!isNaN(v) && v > 0) { total += v; linhas += 1; }
         });
         var cel = tabela.querySelector('.total-bloco');
         if (cel) cel.textContent = paraReais(total);
