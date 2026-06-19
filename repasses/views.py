@@ -9,7 +9,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import CorrecaoMemorizada, Medico
+from .models import CorrecaoMemorizada, Medico, RepasseRascunho
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -62,6 +62,57 @@ def _caminho_upload(token: str):
     if base not in caminho.parents or not caminho.is_file():
         return None
     return caminho
+
+
+# --- Rascunho: memória das edições do repasse em andamento ---------------------
+
+# Campos da revisão que ficam salvos (o resto — token, csrf, memorizar — não).
+_PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
+                      'anest_nome_', 'anest_horas_', 'preceptoria_')
+
+
+def _salvar_rascunho(token, post):
+    if not token:
+        return
+    dados = {}
+    for chave in post.keys():
+        if chave.startswith(_PREFIXOS_RASCUNHO):
+            valor = (post.get(chave) or '').strip()
+            if valor:
+                dados[chave] = valor
+    RepasseRascunho.objects.update_or_create(token=token, defaults={'dados': dados})
+
+
+def _carregar_rascunho(token):
+    r = RepasseRascunho.objects.filter(token=token).first()
+    return dict(r.dados) if r else {}
+
+
+def _anotar_selecoes(resultado, dados):
+    """Marca em cada bloco/procedimento o que foi escolhido (para a tela não
+    'esquecer' os selects de catarata, anestesista e preceptoria)."""
+    for i, bloco in enumerate(resultado.blocos):
+        bloco.sel_anest_nome = dados.get(f'anest_nome_{i}', '')
+        bloco.sel_anest_horas = dados.get(f'anest_horas_{i}', '')
+        bloco.sel_preceptoria = dados.get(f'preceptoria_{i}', '')
+        for p in bloco.procedimentos:
+            p.sel_cat_modo = dados.get(f'cat_modo_{p.idx}', '')
+            p.sel_cat_fellow = dados.get(f'cat_fellow_{p.idx}', '')
+
+
+def _preparar_revisao(token):
+    """Monta o resultado para a tela: lê o arquivo, reaplica as edições salvas e
+    resolve os anestesistas (para aparecerem como blocos). Catarata e preceptoria
+    são resolvidas só na exportação."""
+    caminho = _caminho_upload(token)
+    if caminho is None:
+        return None, None, {}
+    resultado, aviso = _ler_e_processar(caminho, token)
+    dados = _carregar_rascunho(token)
+    _aplicar_edicoes(resultado, dados)
+    _resolver_anestesistas(resultado, dados)
+    _anotar_selecoes(resultado, dados)
+    return resultado, aviso, dados
 
 
 _RE_SUFIXO_CADASTRO = re.compile(r'\s*\([^)]*\)\s*$')
@@ -401,19 +452,38 @@ def importar(request):
         if form.is_valid():
             arquivo = form.cleaned_data['arquivo']
             token = _salvar_upload(arquivo)
-            caminho = _caminho_upload(token)
+            # Novo repasse importado -> zera a memória de edições do anterior.
+            RepasseRascunho.objects.all().delete()
             try:
-                resultado, aviso = _ler_e_processar(caminho, token)
+                resultado, aviso, dados = _preparar_revisao(token)
             except medplus.ErroLeituraMedPlus as exc:
                 erro = str(exc)
             else:
-                return render(request, 'repasses/revisao.html', _ctx_revisao(resultado, token, aviso))
+                return render(request, 'repasses/revisao.html',
+                              _ctx_revisao(resultado, token, aviso, edicoes=dados))
     else:
         form = ImportarMedPlusForm()
     return render(request, 'repasses/importar.html', {'form': form, 'erro': erro})
 
 
-def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None, info=None):
+def salvar(request):
+    """Salva as edições do repasse (rascunho) sem gerar arquivos — para a pessoa
+    ir ajustando aos poucos sem perder nada."""
+    if request.method != 'POST':
+        raise Http404()
+    token = request.POST.get('token', '')
+    if _caminho_upload(token) is None:
+        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+    _salvar_rascunho(token, request.POST)
+    resultado, aviso, dados = _preparar_revisao(token)
+    info = ['✓ Alterações salvas. Pode continuar editando aos poucos — ficam guardadas '
+            'até você importar um novo repasse.']
+    return render(request, 'repasses/revisao.html',
+                  _ctx_revisao(resultado, token, aviso, info=info, edicoes=dados))
+
+
+def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,
+                 info=None, edicoes=None):
     cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
                  if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
     return {
@@ -422,6 +492,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'aviso_regras': aviso,
         'pendencias': pendencias if pendencias is not None else _pendencias_revisao(resultado),
         'info': info or [],
+        'edicoes': edicoes or {},
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
         'qtd_cirurgias': len(cirurgias),
@@ -442,17 +513,16 @@ def exportar(request):
     if caminho is None:
         raise Http404('Arquivo da importação não encontrado — refaça o upload.')
 
-    resultado, aviso = _ler_e_processar(caminho, token)
-    _aplicar_edicoes(resultado, request.POST)
+    _salvar_rascunho(token, request.POST)               # persiste as edições
+    resultado, aviso, dados = _preparar_revisao(token)  # reaplica edições + anestesistas
     info = _memorizar_correcoes(resultado, request.POST)
-    _resolver_preceptoria(resultado, request.POST)
-    _resolver_anestesistas(resultado, request.POST)
-    _resolver_cirurgias(resultado, request.POST)
+    _resolver_preceptoria(resultado, dados)
+    _resolver_cirurgias(resultado, dados)
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
     pendencias = _resumir_pendencias(pend)
-    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias, info)
+    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias, info, edicoes=dados)
     return render(request, 'repasses/revisao.html', ctx)
 
 

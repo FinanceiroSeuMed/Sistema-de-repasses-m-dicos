@@ -132,3 +132,23 @@ class CorrecaoMemorizada(models.Model):
     def __str__(self):
         alvo = self.convenio or 'qualquer convênio'
         return f'{self.procedimento} / {alvo}'
+
+
+class RepasseRascunho(models.Model):
+    """Memória de curto prazo das edições de UM repasse em andamento.
+
+    Guarda os campos da tela de revisão (honorários, classes, catarata,
+    anestesista, preceptoria) ligados ao arquivo importado (token). Assim as
+    alterações ficam salvas enquanto a pessoa trabalha, sem precisar refazer tudo
+    de uma vez. A memória é zerada quando um novo repasse é importado."""
+
+    token = models.CharField('Token do upload', max_length=40, unique=True, db_index=True)
+    dados = models.JSONField('Edições', default=dict)
+    atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Rascunho de repasse'
+        verbose_name_plural = 'Rascunhos de repasse'
+
+    def __str__(self):
+        return f'Rascunho {self.token} ({len(self.dados)} campos)'

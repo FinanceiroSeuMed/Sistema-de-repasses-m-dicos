@@ -66,8 +66,9 @@
 
     <section class="acoes-exportar">
         <button type="submit" class="botao botao-primario">⬇ {% if downloads %}Reexportar com as edições{% else %}Exportar os arquivos{% endif %}</button>
+        <button type="submit" formaction="{% url 'repasses:salvar' %}" class="botao botao-secundario-escuro">💾 Salvar alterações</button>
         <a class="botao botao-secundario-escuro" href="{% url 'repasses:importar' %}">Trocar arquivo</a>
-        <span class="dica">Edite os honorários (em branco = não entra) e a classe antes de exportar.</span>
+        <span class="dica">As alterações ficam guardadas (clique em <strong>Salvar</strong> a qualquer momento) até você importar um novo repasse.</span>
     </section>
 
     {% for bloco in resultado.blocos %}
@@ -91,6 +92,7 @@
             <strong>📘 Preceptoria semanal</strong>
             <span class="campo-inline">valor R$
                 <input type="text" name="preceptoria_{{ forloop.counter0 }}" class="inp-anest"
+                       value="{{ bloco.sel_preceptoria }}"
                        placeholder="{{ bloco.preceptoria_valor|stringformat:'.2f' }}">
             </span>
             <small>preencha no dia em que vai lançar (1× na semana)</small>
@@ -99,19 +101,14 @@
 
         {% if bloco.tem_cirurgia %}
         <div class="anestesista-box">
-            <strong>🔵 Anestesista da cirurgia</strong>
+            <strong>🔵 Houve anestesista nesta cirurgia?</strong>
             <span class="campo-inline">
                 <select name="anest_nome_{{ forloop.counter0 }}" class="inp-classe">
                     <option value="">— sem anestesista —</option>
-                    {% for a in anestesistas %}<option value="{{ a.nome }}">{{ a.nome }}</option>{% endfor %}
+                    {% for a in anestesistas %}<option value="{{ a.nome }}"{% if a.nome == bloco.sel_anest_nome %} selected{% endif %}>{{ a.nome }}</option>{% endfor %}
                 </select>
             </span>
-            <span class="campo-inline">horas extras
-                <input type="number" name="anest_horas_{{ forloop.counter0 }}" class="inp-anest" min="0" value="0">
-            </span>
-            <span class="campo-inline">nº pacientes <small>(só Dra. Regina)</small>
-                <input type="number" name="anest_pac_{{ forloop.counter0 }}" class="inp-anest" min="0">
-            </span>
+            <small>ao escolher e clicar em <strong>Salvar</strong>, o repasse do anestesista aparece abaixo.</small>
         </div>
         {% endif %}
 
@@ -137,8 +134,8 @@
                         {% if p.status_calculo == 'catarata' %}
                         <select class="inp-classe" name="cat_modo_{{ p.idx }}">
                             <option value="">à vista/parcelado?</option>
-                            <option value="avista">À vista (30%)</option>
-                            <option value="parcelado">Parcelado (28%)</option>
+                            <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
+                            <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
                         </select>
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
@@ -155,7 +152,7 @@
                         {% if p.status_calculo == 'catarata' %}
                         <select class="inp-classe" name="cat_fellow_{{ p.idx }}">
                             <option value="">sem fellow</option>
-                            {% for f in fellows %}<option value="{{ f.nome }}">{{ f.nome }}</option>{% endfor %}
+                            {% for f in fellows %}<option value="{{ f.nome }}"{% if f.nome == p.sel_cat_fellow %} selected{% endif %}>{{ f.nome }}</option>{% endfor %}
                         </select>
                         {% else %}
                         <select class="inp-classe" name="classe_{{ p.idx }}">
@@ -175,6 +172,39 @@
                     <td class="num"><strong class="total-bloco">{{ bloco.total_honorario|moeda }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
+            </tfoot>
+        </table>
+    </section>
+    {% endfor %}
+
+    {% for a in resultado.anestesistas %}
+    <section class="bloco-medico bloco-anestesista">
+        <div class="bloco-cabecalho">
+            <div>
+                <h2>🔵 {{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}{% if a.clinica %} <span class="dia-bloco">· {{ a.clinica }}</span>{% endif %}</h2>
+                <span class="razao">Repasse de anestesia — cirurgião: {{ a.cirurgiao }}</span>
+            </div>
+            <div class="bloco-badges">
+                <span class="badge badge-cirurgia">Repasse: {{ a.valor|moeda }}</span>
+            </div>
+        </div>
+        <div class="anestesista-box">
+            <span class="campo-inline">cumpriu horas extras?
+                <input type="number" name="anest_horas_{{ a.indice }}" class="inp-anest" min="0" value="{{ a.horas }}">
+            </span>
+            <small>R$ 1.200 (base do dia) + R$ 200 por hora extra. Clique em <strong>Salvar</strong> para recalcular.</small>
+        </div>
+        <table class="tabela">
+            <thead>
+                <tr><th>Data</th><th>Procedimento</th><th>Convênio</th><th class="num">Qtd.</th></tr>
+            </thead>
+            <tbody>
+                {% for p in a.cirurgias %}
+                <tr><td>{{ p.data_texto }}</td><td>{{ p.procedimento }}</td><td>{{ p.convenio }}</td><td class="num">{{ p.quantidade }}</td></tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr><td colspan="3" class="num"><strong>Total do anestesista</strong></td><td class="num"><strong>{{ a.valor|moeda }}</strong></td></tr>
             </tfoot>
         </table>
     </section>
