@@ -147,7 +147,9 @@ def _classificar_valor(bruto):
             return NEGATIVO, 0.0
         return (PERCENTUAL, v) if v < 1 else (FIXO, v)
     texto = str(bruto).strip()
-    if texto in ('-', '–', ''):
+    if not texto:
+        return SEM_VALOR, None       # vazio = não se aplica (≠ "-" que é não recebe)
+    if texto in ('-', '–'):
         return NEGATIVO, 0.0
     # número em texto?
     limpo = texto.replace('R$', '').replace('.', '').replace(',', '.').strip()
@@ -172,7 +174,12 @@ def _valor_db(texto):
         return '-'
     tl = t.lower().replace('r$', '').strip()
     pct = tl.endswith('%')
-    num = tl.rstrip('%').strip().replace('.', '').replace(',', '.')
+    num = tl.rstrip('%').strip()
+    if ',' in num:
+        num = num.replace('.', '').replace(',', '.')   # BR: ponto=milhar, vírgula=decimal
+    elif not pct:
+        num = num.replace('.', '')                      # fixo sem vírgula: ponto=milhar (1.120=1120)
+    # percentual com ponto (ex.: "28.5%") mantém o ponto como decimal -> 28.5 -> 0.285
     try:
         v = float(num)
         return v / 100.0 if pct else v

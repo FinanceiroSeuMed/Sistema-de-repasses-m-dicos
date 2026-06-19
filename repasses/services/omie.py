@@ -151,7 +151,12 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
         for classe, soma in por_classe.items():
             categoria = CATEGORIA_POR_CLASSE.get(classe, '')
             if not categoria:
-                pendencias.append(f'Classe "{classe}" sem categoria OMIE definida — linha de {nome_forn} ficou sem categoria.')
+                # Sem categoria OMIE (ex.: "A classificar") NÃO entra no arquivo —
+                # a OMIE rejeita linha sem categoria. Vira pendência para a pessoa
+                # reclassificar na revisão antes de exportar.
+                pendencias.append(f'{nome_forn}: R$ {soma:.2f} em "{classe}" — classifique '
+                                  f'(Cirurgia/Exame/Preceptoria) na revisão; NÃO entrou no a pagar.')
+                continue
             linhas.append({'nome': nome_forn, 'categoria': categoria, 'valor': soma,
                            'registro': dia, 'vencimento': venc,
                            'observacao': observacao, 'departamento': bloco.clinica})

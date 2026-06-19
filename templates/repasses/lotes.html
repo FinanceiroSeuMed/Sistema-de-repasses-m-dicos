@@ -43,7 +43,7 @@
                 <td>{% if l.periodo_inicio %}{{ l.periodo_inicio|date:"d/m" }}–{{ l.periodo_fim|date:"d/m" }}{% else %}—{% endif %}</td>
                 <td class="num">{{ l.n_medicos }}</td>
                 <td class="num">{{ l.total_pagar|moeda }}</td>
-                <td>{% if l.n_pendentes %}<span class="badge badge-pendente">{{ l.n_pendentes }} pendente(s)</span>{% else %}<span class="badge badge-ok">tudo pago</span>{% endif %}</td>
+                <td>{% if not l.n_total %}<span class="badge badge-zero">sem repasses</span>{% elif l.n_pendentes %}<span class="badge badge-pendente">{{ l.n_pendentes }} pendente(s)</span>{% else %}<span class="badge badge-ok">tudo pago</span>{% endif %}</td>
                 <td><a class="botao botao-mini" href="{% url 'repasses:lote_detalhe' l.id %}">Abrir</a></td>
             </tr>
             {% endfor %}

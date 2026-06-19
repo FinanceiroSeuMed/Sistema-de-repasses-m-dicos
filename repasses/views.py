@@ -682,11 +682,15 @@ def _arquivo_nome(token):
 
 
 def _fingerprint(p, profissional):
-    """Impressão digital de um atendimento, para detectar duplicidade entre lotes."""
+    """Impressão digital de um atendimento, para detectar duplicidade entre lotes.
+
+    Inclui o PACIENTE (discrimina atendimentos iguais de pacientes diferentes no
+    mesmo dia) e NÃO inclui a clínica (um export pode trazer a coluna Clínica e
+    outro não — o mesmo atendimento tem que casar mesmo assim)."""
     return '|'.join([
         p.data.isoformat() if p.data else '',
         regras.normalizar(profissional),
-        regras.normalizar(p.clinica or ''),
+        regras.normalizar(getattr(p, 'paciente', '') or ''),
         regras.normalizar(p.procedimento),
         regras.normalizar(p.convenio or ''),
         ('%.2f' % float(p.valor)) if p.valor is not None else '',
@@ -731,26 +735,31 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
     arq_nome = _arquivo_nome(token)
     quem = request.user.get_username() if request.user.is_authenticated else 'diretoria'
 
-    # Duplicidade: atendimentos que já apareceram em lote de OUTRO arquivo.
-    avisos, novos = [], set(fps)
-    for lote in Lote.objects.exclude(token=token):
-        if lote.arquivo_nome and lote.arquivo_nome == arq_nome:
-            continue  # mesmo arquivo (re-exportação) não é duplicidade
-        overlap = novos & set(lote.fingerprints or [])
-        if overlap:
-            avisos.append(f'⚠️ {len(overlap)} atendimento(s) já saíram no lote #{lote.id} '
-                          f'({lote.arquivo_nome or "?"}, {lote.criado_em:%d/%m/%Y}) — '
+    # Duplicidade: atendimentos que já apareceram em lote de OUTRO upload (token).
+    # A re-exportação do mesmo upload é excluída pelo exclude(token=token); NÃO
+    # pulamos por nome de arquivo (dois uploads podem ter o mesmo nome). Conta por
+    # multiconjunto para não subnotificar atendimentos repetidos.
+    avisos, novos = [], Counter(fps)
+    for outro in Lote.objects.exclude(token=token):
+        inter = novos & Counter(outro.fingerprints or [])
+        n = sum(inter.values())
+        if n:
+            avisos.append(f'⚠️ {n} atendimento(s) já saíram no lote #{outro.id} '
+                          f'({outro.arquivo_nome or "?"}, {outro.criado_em:%d/%m/%Y}) — '
                           'confira para não pagar 2×.')
 
-    lote, _ = Lote.objects.update_or_create(token=token, defaults={
-        'criado_por': quem, 'arquivo_nome': arq_nome, 'unidade': resultado.unidade or '',
+    defaults = {
+        'criado_por': quem, 'unidade': resultado.unidade or '',
         'periodo_inicio': min(datas) if datas else None,
         'periodo_fim': max(datas) if datas else None,
         'n_medicos': len(medicos), 'n_repasses': n_repasses,
         'total_pagar': round(total_pagar, 2), 'total_receber': round(total_receber, 2),
         'pasta_saida': pasta_saida, 'downloads': downloads,
         'auditoria': _auditoria_lote(resultado, dados), 'fingerprints': fps,
-    })
+    }
+    if arq_nome:
+        defaults['arquivo_nome'] = arq_nome  # não sobrescreve o nome bom com vazio
+    lote, _ = Lote.objects.update_or_create(token=token, defaults=defaults)
     _sync_repasses(lote, resultado)
     return avisos
 
@@ -816,6 +825,8 @@ def lote_detalhe(request, pk):
 
 def lote_status(request, pk):
     """Salva o andamento (gerado/revisado/enviado/pago) dos repasses do lote."""
+    if request.method != 'POST':
+        raise Http404()
     lote = get_object_or_404(Lote, pk=pk)
     if request.method == 'POST':
         validos = dict(Repasse.STATUS_CHOICES)
