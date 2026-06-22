@@ -61,9 +61,17 @@ def _caminho_upload(token: str):
         return None
     base = Path(settings.UPLOADS_DIR).resolve()
     caminho = (base / token).resolve()
-    if base not in caminho.parents or not caminho.is_file():
+    if base not in caminho.parents:
         return None
-    return caminho
+    if caminho.is_file():
+        return caminho
+    # Pasta uploads/ limpa? Recupera o .xls de origem guardado no banco (lote).
+    lote = Lote.objects.filter(token=token).exclude(upload_conteudo=None).first()
+    if lote and lote.upload_conteudo:
+        base.mkdir(parents=True, exist_ok=True)
+        caminho.write_bytes(bytes(lote.upload_conteudo))
+        return caminho
+    return None
 
 
 # --- Rascunho: memória das edições do repasse em andamento ---------------------
@@ -602,6 +610,7 @@ def exportar(request):
     pasta_saida, downloads = _salvar_saidas(arquivos)
     avisos_dup = _registrar_lote(request, token, resultado, dados, pasta_saida, downloads)
     _guardar_arquivos_no_banco(token, arquivos)        # re-download não depende da pasta saídas/
+    _guardar_upload_no_banco(token)                    # re-export sobrevive à limpeza de uploads/
     pendencias = _resumir_pendencias(pend)
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
                        info=info, edicoes=dados, avisos=avisos_dup)
@@ -688,6 +697,18 @@ def _guardar_arquivos_no_banco(token, arquivos):
         ArquivoSaida(lote=lote, grupo=g, nome=n, conteudo=conteudo)
         for (g, n, conteudo) in arquivos
     ])
+
+
+def _guardar_upload_no_banco(token):
+    """Guarda o .xls de origem no lote (uma vez), para re-exportar mesmo que a
+    pasta uploads/ seja limpa."""
+    lote = Lote.objects.filter(token=token).first()
+    if not lote or lote.upload_conteudo:
+        return
+    caminho = _caminho_upload(token)
+    if caminho and caminho.is_file():
+        lote.upload_conteudo = caminho.read_bytes()
+        lote.save(update_fields=['upload_conteudo'])
 
 
 def baixar_lote(request, pk, nome):

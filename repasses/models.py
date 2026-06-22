@@ -232,6 +232,7 @@ class Lote(models.Model):
     downloads = models.JSONField('Arquivos gerados', default=list)   # [{grupo, arquivo}]
     auditoria = models.JSONField('Ajustes manuais', default=list)    # lista de textos
     fingerprints = models.JSONField('Atendimentos', default=list)    # p/ duplicidade
+    upload_conteudo = models.BinaryField('Relatório importado', null=True, blank=True)  # o .xls de origem
 
     class Meta:
         verbose_name = 'Lote (histórico)'

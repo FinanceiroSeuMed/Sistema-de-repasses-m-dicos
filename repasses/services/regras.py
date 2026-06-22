@@ -126,6 +126,35 @@ def _tokens(texto: str) -> set[str]:
     return toks
 
 
+# --- Casamento de NOME de médico (por tokens, robusto a abreviação/sufixo) -----
+_HONORIFICOS = {'dr', 'dra', 'sr', 'sra'}
+_STOP_NOME = {'de', 'da', 'do', 'dos', 'das', 'e'}
+_RE_PAREN = re.compile(r'\([^)]*\)')
+
+
+def _tokens_nome(nome: str) -> list[str]:
+    """Tokens significativos do nome: sem honorífico (Dr./Dra.), sem sufixo de
+    unidade entre parênteses e sem conectivos (de/da/do)."""
+    base = _RE_PAREN.sub(' ', nome or '')
+    return [t for t in normalizar(base).split()
+            if t not in _HONORIFICOS and t not in _STOP_NOME and len(t) >= 2]
+
+
+def _casados(q: list[str], c: list[str]) -> int:
+    """Quantos tokens de q têm correspondente em c (igual ou quase igual — tolera
+    pequenos erros de digitação), cada token de c usado no máximo uma vez."""
+    usados, n = set(), 0
+    for tq in q:
+        for i, tc in enumerate(c):
+            if i in usados:
+                continue
+            if tq == tc or SequenceMatcher(None, tq, tc).ratio() >= 0.85:
+                usados.add(i)
+                n += 1
+                break
+    return n
+
+
 def _componente_cirurgia(procedimento: str):
     """Se o último termo for um componente de cirurgia (anestesista/hospital/sala),
     devolve esse termo — a linha NÃO conta como repasse do cirurgião. A linha
@@ -227,13 +256,32 @@ class LivroRegras:
     lembretes_preceptoria: list[str] = field(default_factory=list)
 
     def medico_por_nome(self, nome: str) -> Medico | None:
-        alvo = normalizar(nome)
-        melhor, score = None, 0.0
+        """Casa por TOKENS do nome (não por similaridade da string inteira, que
+        deixava nomes abreviados escaparem e casava pessoas diferentes). Exige que
+        o nome MENOR esteja praticamente todo contido no maior, com ≥2 tokens
+        casados (ou nome de 1 token)."""
+        q = _tokens_nome(nome)
+        if not q:
+            return None
+        melhor, melhor_score = None, 0.0
         for m in self.medicos:
-            s = SequenceMatcher(None, alvo, normalizar(m.nome)).ratio()
-            if s > score:
-                melhor, score = m, s
-        return melhor if score >= 0.6 else None
+            c = _tokens_nome(m.nome)
+            if not c:
+                continue
+            n = _casados(q, c)
+            if not n:
+                continue
+            menor = min(len(q), len(c))
+            cont = n / menor
+            # ou o nome menor está ~todo contido (≥2 tokens, ou nome de 1 token),
+            # ou é um nome longo (≥4 tokens) com no máximo UM token divergente (typo
+            # tipo "Ninin"/"Nanin").
+            ok = (cont >= 0.99 and (n >= 2 or menor == 1)) or (menor >= 4 and n >= menor - 1)
+            if ok:
+                score = cont + n / (len(q) + len(c))   # desempate: mais cobertura ganha
+                if score > melhor_score:
+                    melhor, melhor_score = m, score
+        return melhor
 
 
 # --- Carregamento da planilha de regras --------------------------------------
