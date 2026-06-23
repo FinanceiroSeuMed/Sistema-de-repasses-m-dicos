@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import io
 import re
-import unicodedata
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -70,16 +69,18 @@ def pagaveis(bloco):
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0]
 
 
-def _total(bloco) -> float:
-    return round(sum(p.honorario for p in pagaveis(bloco)), 2)
+def _total(bloco, linhas=None) -> float:
+    linhas = pagaveis(bloco) if linhas is None else linhas
+    return round(sum(p.honorario for p in linhas), 2)
 
 
-def _ajuste_arredondamento(bloco) -> float:
+def _ajuste_arredondamento(bloco, linhas=None) -> float:
     """Diferença entre o Total (soma em precisão cheia, arredondada — igual à
     OMIE) e a soma das linhas exibidas com 2 casas. Vira uma linha
     "Arredondamento" para o documento de conferência fechar centavo a centavo."""
-    soma_exibida = round(sum(round(p.honorario or 0, 2) for p in pagaveis(bloco)), 2)
-    return round(_total(bloco) - soma_exibida, 2)
+    linhas = pagaveis(bloco) if linhas is None else linhas
+    soma_exibida = round(sum(round(p.honorario or 0, 2) for p in linhas), 2)
+    return round(_total(bloco, linhas) - soma_exibida, 2)
 
 
 # --- Excel (arquivo interno) --------------------------------------------------
@@ -117,7 +118,8 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         cel.font = cabec_font
     linha += 1
 
-    for p in pagaveis(bloco):
+    linhas_pag = pagaveis(bloco)
+    for p in linhas_pag:
         ws.cell(linha, 1, p.data_texto)
         ws.cell(linha, 2, p.paciente)
         ws.cell(linha, 3, p.procedimento)
@@ -128,7 +130,7 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         cel_h.number_format = 'R$ #,##0.00'
         linha += 1
 
-    ajuste = _ajuste_arredondamento(bloco)
+    ajuste = _ajuste_arredondamento(bloco, linhas_pag)
     if ajuste:
         ws.cell(linha, 5, 'Arredondamento')
         cel_aj = ws.cell(linha, 6, ajuste)
@@ -136,7 +138,7 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         linha += 1
 
     ws.cell(linha, 5, 'Total').font = negrito
-    cel_total = ws.cell(linha, 6, _total(bloco))
+    cel_total = ws.cell(linha, 6, _total(bloco, linhas_pag))
     cel_total.number_format = 'R$ #,##0.00'
     cel_total.font = negrito
 
@@ -181,8 +183,9 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
         elems.append(Paragraph(f'📌 {bloco.lembrete}', st_lembrete))
     elems.append(Spacer(1, 8))
 
+    linhas_pag = pagaveis(bloco)
     dados = [['Data', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']]
-    for p in pagaveis(bloco):
+    for p in linhas_pag:
         dados.append([
             p.data_texto,
             Paragraph(p.procedimento, st_cel),
@@ -190,10 +193,10 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
             str(p.quantidade),
             moeda(p.honorario),
         ])
-    ajuste = _ajuste_arredondamento(bloco)
+    ajuste = _ajuste_arredondamento(bloco, linhas_pag)
     if ajuste:
         dados.append(['', '', '', 'Arredondamento', moeda(ajuste)])
-    dados.append(['', '', '', 'Total', moeda(_total(bloco))])
+    dados.append(['', '', '', 'Total', moeda(_total(bloco, linhas_pag))])
 
     tabela = Table(dados, colWidths=[22 * mm, 78 * mm, 30 * mm, 12 * mm, 28 * mm], repeatRows=1)
     tabela.setStyle(TableStyle([
@@ -213,7 +216,7 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     elems.append(tabela)
     elems.append(Spacer(1, 10))
     elems.append(Paragraph(
-        f'Total de {len(pagaveis(bloco))} procedimento(s) com repasse. '
+        f'Total de {len(linhas_pag)} procedimento(s) com repasse. '
         'Documento para conferência do profissional.', st_sub))
 
     doc.build(elems)

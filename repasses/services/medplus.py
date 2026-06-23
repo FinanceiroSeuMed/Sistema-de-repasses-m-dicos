@@ -10,6 +10,7 @@ resistir a mudanças de layout e suportar arquivos com vários médicos.
 
 from __future__ import annotations
 
+import functools
 import io
 import re
 import unicodedata
@@ -251,9 +252,11 @@ _CIRURGIAS_ANESTESIA = (
 )
 
 
+@functools.lru_cache(maxsize=2048)
 def eh_cirurgia(procedimento: str) -> bool:
     """True se o procedimento é uma CIRURGIA (precisa de anestesista), distinguindo
-    das de consultório (YAG/laser, capsulotomia/iridotomia a laser)."""
+    das de consultório (YAG/laser, capsulotomia/iridotomia a laser). Memoizado —
+    é chamado por linha em tem_cirurgia/subclasse_preview e em regras.py."""
     n = _norm(procedimento)
     if any(k in n for k in ('yag', 'laser')):
         return False
@@ -325,21 +328,29 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
     Lê um relatório da MedPlus (caminho, bytes ou file-like) e devolve a
     estrutura com os médicos e seus procedimentos já com palpite de classe.
     """
-    engine = 'xlrd'
-    nome = (nome_arquivo or getattr(arquivo, 'name', '') or '').lower()
-    if nome.endswith('.xlsx'):
-        engine = 'openpyxl'
-
-    try:
-        if hasattr(arquivo, 'read'):
-            dados = io.BytesIO(arquivo.read())
-            df = pd.read_excel(dados, sheet_name=0, engine=engine, header=None)
-        else:
-            df = pd.read_excel(arquivo, sheet_name=0, engine=engine, header=None)
-    except Exception as exc:  # pragma: no cover - depende do arquivo
+    # Normaliza para bytes (caminho, bytes ou file-like) e detecta o formato REAL
+    # pela assinatura — não confia só na extensão (um .xls pode ser OOXML).
+    if hasattr(arquivo, 'read'):
+        conteudo = arquivo.read()
+    elif isinstance(arquivo, (bytes, bytearray)):
+        conteudo = bytes(arquivo)
+    else:
+        with open(arquivo, 'rb') as _f:
+            conteudo = _f.read()
+    # OOXML (.xlsx) começa com 'PK\x03\x04'; senão tenta o .xls legado primeiro.
+    engines = ('openpyxl', 'xlrd') if conteudo[:4] == b'PK\x03\x04' else ('xlrd', 'openpyxl')
+    df, ultimo = None, None
+    for engine in engines:
+        try:
+            df = pd.read_excel(io.BytesIO(conteudo), sheet_name=0, engine=engine, header=None)
+            break
+        except Exception as exc:   # tenta a outra engine antes de desistir
+            ultimo = exc
+    if df is None:
         raise ErroLeituraMedPlus(
-            f'Não consegui abrir o arquivo como planilha da MedPlus ({exc}).'
-        ) from exc
+            'Não consegui abrir o arquivo — ele não parece ser a planilha exportada da '
+            'MedPlus (Excel .xls ou .xlsx). Reexporte pela MedPlus e tente novamente.'
+        ) from ultimo
 
     resultado = ResultadoImportacao(unidade='')
     # unidade = primeiro texto não-vazio das primeiras linhas

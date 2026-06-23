@@ -136,8 +136,8 @@ REGRAS_REPASSE_PATH = BASE_DIR / 'amostras' / 'regras_repasse.xlsx'
 OMIE_PAGAR_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
 OMIE_RECEBER_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
 
-# Categoria de fallback do contas a RECEBER (quando o atendimento não se encaixa
-# nas categorias mapeadas). As categorias por atendimento estão em omie.categoria_receber.
+# Categoria ÚNICA do contas a RECEBER (hoje o a receber é "recebimento geral" por
+# dia/clínica — uma só categoria; não há mais classificação por atendimento).
 OMIE_CATEGORIA_RECEBER = 'Outras Receitas com Serviços'
 
 # Pasta onde os arquivos gerados ficam disponíveis para download

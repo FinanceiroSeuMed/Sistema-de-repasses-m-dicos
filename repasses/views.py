@@ -785,7 +785,9 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
     # pulamos por nome de arquivo (dois uploads podem ter o mesmo nome). Conta por
     # multiconjunto para não subnotificar atendimentos repetidos.
     avisos, novos = [], Counter(fps)
-    for outro in Lote.objects.exclude(token=token):
+    # só os campos lidos — NÃO arrasta o upload_conteudo (BinaryField pesado).
+    outros = Lote.objects.exclude(token=token).only('id', 'arquivo_nome', 'criado_em', 'fingerprints')
+    for outro in outros:
         inter = novos & Counter(outro.fingerprints or [])
         n = sum(inter.values())
         if n:
@@ -857,7 +859,7 @@ def lotes_lista(request):
 def lote_detalhe(request, pk):
     """Detalhe de um lote: re-baixar os arquivos, status dos repasses, auditoria."""
     lote = get_object_or_404(Lote, pk=pk)
-    db_arqs = list(lote.arquivos.all())
+    db_arqs = list(lote.arquivos.only('grupo', 'nome'))   # nomes p/ os links, sem os bytes
     if db_arqs:
         # Servidos do BANCO — sempre disponíveis (independe da pasta saídas/).
         downloads = [{'grupo': a.grupo, 'arquivo': a.nome, 'existe': True, 'no_banco': True}

@@ -6,11 +6,12 @@ a partir de um relatório da MedPlus já processado (com honorários calculados)
 Regras definidas pela diretoria:
 - Conta corrente: "Omie.CASH".
 - Vencimento: dia 10 do mês seguinte ao mês do atendimento.
-- A pagar: uma linha somada por (médico × classe), com a categoria da classe.
-  Só entram honorários CALCULADOS (> 0). Linhas "a definir" não entram (ficam
-  pendentes para o usuário preencher).
-- A receber: uma linha somada por convênio (Cliente = nome do convênio), com o
-  valor bruto pago pelo paciente/convênio.
+- A pagar: uma linha por (médico × dia × clínica × classe), categoria da classe.
+  Só entram honorários CALCULADOS (> 0). Linhas "a definir" ou sem categoria não
+  entram (viram pendência para o usuário resolver na revisão).
+- A receber: uma linha por (dia × clínica) — recebimento geral dos pacientes —
+  com o valor bruto somado; Cliente = a associação (CLIENTE_RECEBER), filial no
+  Departamento; categoria = fallback único.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from datetime import date
 from openpyxl import load_workbook
 
 from . import medplus
-from .regras import normalizar
 
 # Mapeamento classe -> categoria da OMIE (contas a pagar)
 CATEGORIA_POR_CLASSE = {
@@ -107,8 +107,7 @@ def _escrever(modelo_path, linhas: list[dict], col_departamento: int) -> tuple[b
         ws.cell(row=r, column=COL_CONTA, value=CONTA_CORRENTE)
         cval = ws.cell(row=r, column=COL_VALOR, value=round(float(ln['valor']), 2))
         cval.number_format = '0.00'
-        for col in (COL_REGISTRO, COL_VENCIMENTO):
-            chave = 'registro' if col == COL_REGISTRO else 'vencimento'
+        for col, chave in ((COL_REGISTRO, 'registro'), (COL_VENCIMENTO, 'vencimento')):
             cel = ws.cell(row=r, column=col, value=ln[chave])  # objeto date, não string
             cel.number_format = 'DD/MM/YYYY'
         if ln.get('observacao'):
@@ -174,43 +173,6 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     linhas.sort(key=lambda x: (str(x['registro']), x['departamento'] or '', x['nome'], x['categoria']))
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_PAGAR)
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
-
-
-# Tokens que indicam cirurgia (para a categoria do a receber)
-_CIRURGIA_TOKENS = ('cirurgia', 'facectomia', 'facoemulsificacao', 'faco', 'vitrectomia',
-                    'blefaroplastia', 'pterigio', 'calazio', 'ptose', 'injecao', 'intravitrea',
-                    'trabeculectomia', 'transplante', 'reconstrucao', 'iridotomia', 'capsulotomia')
-
-
-def categoria_receber(p, fallback='Outras Receitas com Serviços') -> str:
-    """Categoria OMIE do contas a receber, por atendimento (tipo × convênio).
-
-    Mapeamento inferido do print da diretoria — sujeito a confirmação.
-    """
-    convn = normalizar(p.convenio)
-    n = normalizar(p.procedimento)
-
-    if p.classe == medplus.CLASSE_TAXA or 'taxa' in convn:
-        return 'Taxa de Sala / Uso de Estrutura'
-    if 'cisa' in convn:
-        return 'Serviços - CISAMUSEP'
-    if 'particular' in convn:
-        if p.classe == medplus.CLASSE_CIRURGIA or any(t in n for t in _CIRURGIA_TOKENS):
-            return 'Cirurgias - Particular'
-        if 'consulta' in n:
-            return 'Consultas - Particular'
-        return 'Diagnósticos e Procedimentos - Particular'
-    if 'sus' in convn or convn.startswith('pg') or 'oci' in convn:
-        if convn.startswith('pg') or 'glaucoma' in n:
-            return 'Projeto Glaucoma - SUS'
-        if 'vitrectomia' in n:
-            return 'Vitrectomia - SUS'
-        if any(t in n for t in ('catarata', 'facectomia', 'facoemulsificacao', 'faco')):
-            return 'Cirurgias de Catarata - SUS'
-        return 'Outros Serviços - SUS'
-    if convn:
-        return 'Diversas Operadoras de Saúde'
-    return fallback
 
 
 def gerar_contas_receber(resultado, modelo_path, categoria_fallback='Outras Receitas com Serviços') -> ResultadoSaida:

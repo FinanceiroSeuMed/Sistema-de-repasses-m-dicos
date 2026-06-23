@@ -16,6 +16,8 @@ A planilha tem muitas exceções; este motor resolve com segurança os casos dir
 
 from __future__ import annotations
 
+import functools
+import logging
 import os
 import re
 import unicodedata
@@ -23,6 +25,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
 import pandas as pd
+from django.db.utils import OperationalError, ProgrammingError
 
 # Status do cálculo de uma linha
 CALCULADO = 'calculado'      # encontrou regra e calculou
@@ -36,8 +39,8 @@ CATARATA_AVISTA = 0.30       # à vista (dinheiro/pix/débito)
 CATARATA_PARCELADO = 0.28    # parcelado
 FELLOW_PERCENTUAL = 0.40     # fellow recebe 40%; cirurgião 60%
 
-# Anestesista: Cassiana/Isabela/Marília/Suellen = 1200 base + 200/h extra;
-# Regina = 1000 (15-24 pacientes) ou 1500 (>24) + 200/h extra.
+# Anestesista (OMIE): R$ 1.200 de base do dia + R$ 200 por hora extra.
+# (Dra. Regina é paga em dinheiro, FORA da OMIE — sem regra por nº de pacientes.)
 ANESTESISTA_BASE = 1200
 ANESTESISTA_HORA_EXTRA = 200
 
@@ -132,12 +135,14 @@ _STOP_NOME = {'de', 'da', 'do', 'dos', 'das', 'e'}
 _RE_PAREN = re.compile(r'\([^)]*\)')
 
 
-def _tokens_nome(nome: str) -> list[str]:
+@functools.lru_cache(maxsize=1024)
+def _tokens_nome(nome: str) -> tuple[str, ...]:
     """Tokens significativos do nome: sem honorífico (Dr./Dra.), sem sufixo de
-    unidade entre parênteses e sem conectivos (de/da/do)."""
+    unidade entre parênteses e sem conectivos (de/da/do). Memoizado (o cadastro é
+    re-tokenizado a cada lookup) — devolve tupla imutável, não mutar no chamador."""
     base = _RE_PAREN.sub(' ', nome or '')
-    return [t for t in normalizar(base).split()
-            if t not in _HONORIFICOS and t not in _STOP_NOME and len(t) >= 2]
+    return tuple(t for t in normalizar(base).split()
+                 if t not in _HONORIFICOS and t not in _STOP_NOME and len(t) >= 2)
 
 
 def _casados(q: list[str], c: list[str]) -> int:
@@ -239,6 +244,7 @@ class RegraProcedimento:
     nome_norm: str
     tokens: set
     valores: dict           # pagador -> célula bruta
+    classif: dict = field(default_factory=dict)   # pagador -> (tipo, val) pré-computado
 
 
 @dataclass
@@ -254,6 +260,7 @@ class LivroRegras:
     procedimentos: list[RegraProcedimento] = field(default_factory=list)
     medicos: list[Medico] = field(default_factory=list)
     lembretes_preceptoria: list[str] = field(default_factory=list)
+    idx_nome: dict = field(default_factory=dict)   # nome_norm -> primeira RegraProcedimento
 
     def medico_por_nome(self, nome: str) -> Medico | None:
         """Casa por TOKENS do nome (não por similaridade da string inteira, que
@@ -349,6 +356,17 @@ def _ler_medicos(caminho) -> tuple[list[Medico], list[str]]:
     return medicos, lembretes
 
 
+def _indexar(livro: LivroRegras) -> LivroRegras:
+    """Pré-computa (tipo, val) de cada célula e indexa as regras por nome
+    normalizado. Evita reclassificar valores e varrer a lista a cada linha do
+    relatório — resultado idêntico, só mais rápido. Chamar DEPOIS dos overrides."""
+    livro.idx_nome = {}
+    for regra in livro.procedimentos:
+        regra.classif = {pag: _classificar_valor(regra.valores.get(pag)) for pag in _PAGADORES}
+        livro.idx_nome.setdefault(regra.nome_norm, regra)
+    return livro
+
+
 def carregar_regras(caminho) -> LivroRegras:
     livro = LivroRegras()
     livro.procedimentos += _ler_aba_precos(caminho, 'Consultas e Exames', 'Exames e Consultas')
@@ -367,16 +385,16 @@ def carregar_regras(caminho) -> LivroRegras:
         livro.procedimentos.append(RegraProcedimento(
             classe=classe, nome=nome, nome_norm=normalizar(nome),
             tokens=_tokens(nome), valores=valores))
-    return livro
+    return _indexar(livro)
 
 
 def _valor_consulta(livro: LivroRegras, pagador: str):
     """Valor fixo da Consulta para o pagador (para somar à faco que inclui consulta)."""
-    for regra in livro.procedimentos:
-        if regra.nome_norm == 'consulta':
-            tipo, val = _classificar_valor(regra.valores.get(pagador))
-            if tipo == FIXO:
-                return val
+    regra = livro.idx_nome.get('consulta')
+    if regra is not None:
+        tipo, val = regra.classif.get(pagador, (SEM_VALOR, None))
+        if tipo == FIXO:
+            return val
     return None
 
 
@@ -441,8 +459,11 @@ def _similaridade(tokens_proc: set, regra: RegraProcedimento) -> tuple[float, in
     return casadas / len(regra.tokens), casadas
 
 
+_NAO_RESOLVIDO = object()   # sentinela: "resolver o médico pelo nome"
+
+
 def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico: str = '',
-             limiar: float = 0.6) -> ResultadoCalculo:
+             limiar: float = 0.6, medico_obj=_NAO_RESOLVIDO) -> ResultadoCalculo:
     pagador = mapear_convenio(convenio)
     if pagador is None:
         return ResultadoCalculo(A_DEFINIR, None, motivo=f'Convênio não reconhecido: "{convenio}".')
@@ -459,8 +480,12 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
     # o procedimento é uma consulta/tono relacionada a faco.
     tem_faco = eh_catarata or ('faco' in tokens_proc)
 
-    # Regra por categoria do médico (verificada ANTES do casamento)
-    m = livro.medico_por_nome(medico) if medico else None
+    # Regra por categoria do médico (verificada ANTES do casamento). O médico já
+    # vem resolvido de processar() (1 lookup por bloco, não por procedimento).
+    if medico_obj is _NAO_RESOLVIDO:
+        m = livro.medico_por_nome(medico) if medico else None
+    else:
+        m = medico_obj
     if m and 'residente' in m.categoria.lower():
         return ResultadoCalculo(NAO_RECEBE, 0.0, motivo='Residente — não recebe honorário.')
     if m and 'fellow' in m.categoria.lower() and tem_faco:
@@ -492,7 +517,7 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
 
     candidatos = []
     for regra in livro.procedimentos:
-        tipo, _ = _classificar_valor(regra.valores.get(pagador))
+        tipo, _ = regra.classif.get(pagador, (SEM_VALOR, None))   # classificação pré-computada
         if tipo == SEM_VALOR:
             continue
         proporcao, casadas = _similaridade(tokens_proc, regra)
@@ -504,8 +529,7 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
     # melhor proporção; empate -> regra que casou mais palavras (mais específica)
     candidatos.sort(key=lambda x: (x[0], x[1]), reverse=True)
     _, _, regra = candidatos[0]
-    bruto = regra.valores.get(pagador)
-    tipo, val = _classificar_valor(bruto)
+    tipo, val = regra.classif.get(pagador, (SEM_VALOR, None))
 
     # Consulta no SUS: a regular é R$ 25, mas a consulta COM TONOMETRIA ("tono")
     # vira R$ 10 (valor pago pelo SUS é constante e distingue os dois casos).
@@ -555,7 +579,7 @@ def carregar_livro_db() -> LivroRegras:
                                     razao_social=m.razao_social or '', obs=m.regra_obs or ''))
         if m.eh_preceptor and m.regra_obs:
             livro.lembretes_preceptoria.append(f'{m.nome}: {m.regra_obs}')
-    return livro
+    return _indexar(livro)
 
 
 def carregar_livro_padrao() -> LivroRegras | None:
@@ -565,8 +589,10 @@ def carregar_livro_padrao() -> LivroRegras | None:
         from ..models import RegraRepasse
         if RegraRepasse.objects.exists():
             return carregar_livro_db()
-    except Exception:
-        pass  # banco ainda não pronto (ex.: antes das migrations) -> planilha
+    except (OperationalError, ProgrammingError) as exc:
+        # banco ainda não pronto (ex.: antes das migrations) -> cai pra planilha,
+        # mas REGISTRA — não pode falhar em silêncio (regras desatualizadas).
+        logging.getLogger(__name__).warning('Banco de regras indisponível (%s); usando a planilha.', exc)
     from django.conf import settings
     caminho = getattr(settings, 'REGRAS_REPASSE_PATH', '')
     if caminho and os.path.exists(caminho):
@@ -588,7 +614,8 @@ def processar(resultado, livro: LivroRegras):
             if 'preceptor' in medico.categoria.lower() and medico.obs:
                 bloco.lembrete = f'Repasse de preceptoria a lançar à parte: {medico.obs}'
         for p in bloco.procedimentos:
-            r = calcular(livro, p.procedimento, p.convenio, p.valor, bloco.profissional)
+            r = calcular(livro, p.procedimento, p.convenio, p.valor, bloco.profissional,
+                         medico_obj=medico)
             p.honorario = r.honorario
             p.status_calculo = r.status
             p.motivo_calculo = r.motivo
