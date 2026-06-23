@@ -36,9 +36,10 @@ SUBCLASSE_CIRURGIA = 'Cirurgias'
 SUBCLASSE_PROCEDIMENTO = 'Procedimentos'
 SUBCLASSE_EXAME = 'Exames e Consultas'
 SUBCLASSE_PRECEPTORIA = 'Preceptorias'
+SUBCLASSE_TAXA = 'Taxas de Sala'
 SUBCLASSE_INDEFINIDA = 'A classificar'
 SUBCLASSES = [SUBCLASSE_CIRURGIA, SUBCLASSE_PROCEDIMENTO, SUBCLASSE_EXAME,
-              SUBCLASSE_PRECEPTORIA, SUBCLASSE_INDEFINIDA]
+              SUBCLASSE_PRECEPTORIA, SUBCLASSE_TAXA, SUBCLASSE_INDEFINIDA]
 
 # Palavras-chave para um PALPITE inicial de classificação. É provisório:
 # a classificação definitiva virá das regras (anexo 5) e poderá ser editada
@@ -95,6 +96,8 @@ class Procedimento:
     motivo_calculo: str = ''
     idx: int = 0                     # índice estável da linha (para edição na revisão)
     eh_catarata_part: bool = False   # catarata particular resolvida (mantém o seletor na tela)
+    sintetica: bool = False          # linha criada na revisão (preceptoria / participação do fellow):
+                                     # valor derivado/digitado à parte, renderizada como só-leitura
 
 
 @dataclass
@@ -267,6 +270,8 @@ def subclasse_preview(p) -> str:
     """Subclasse só para o preview (Cirurgias × Procedimentos × Exames × Preceptorias)."""
     if p.classe == CLASSE_PRECEPTORIA:
         return SUBCLASSE_PRECEPTORIA
+    if p.classe == CLASSE_TAXA:
+        return SUBCLASSE_TAXA
     if p.classe == CLASSE_EXAME:
         return SUBCLASSE_EXAME
     if p.classe == CLASSE_CIRURGIA:

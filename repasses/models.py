@@ -232,6 +232,7 @@ class Lote(models.Model):
     downloads = models.JSONField('Arquivos gerados', default=list)   # [{grupo, arquivo}]
     auditoria = models.JSONField('Ajustes manuais', default=list)    # lista de textos
     fingerprints = models.JSONField('Atendimentos', default=list)    # p/ duplicidade
+    edicoes = models.JSONField('Edições da revisão', default=dict)   # rascunho p/ reabrir e editar
     upload_conteudo = models.BinaryField('Relatório importado', null=True, blank=True)  # o .xls de origem
 
     class Meta:
@@ -241,6 +242,12 @@ class Lote(models.Model):
 
     def __str__(self):
         return f'Lote {self.id} — {self.arquivo_nome or self.token} ({self.criado_em:%d/%m/%Y})'
+
+    @property
+    def fixado(self):
+        """Lote 'fixado' = tem algum repasse já PAGO. Fixado não pode ser editado/excluído
+        (a diretoria reverte o status do pagamento para liberar)."""
+        return self.repasses.filter(status=Repasse.STATUS_PAGO).exists()
 
 
 class ArquivoSaida(models.Model):

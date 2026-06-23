@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
+from django.contrib import messages
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -116,8 +117,8 @@ def _anotar_selecoes(resultado, dados):
 
 def _preparar_revisao(token):
     """Monta o resultado para a tela: lê o arquivo, reaplica as edições salvas e
-    resolve os anestesistas (para aparecerem como blocos). Catarata e preceptoria
-    são resolvidas só na exportação."""
+    resolve anestesistas (blocos próprios), catarata particular e preceptoria — para
+    que o que o usuário Salva já apareça no preview, igual ao que será exportado."""
     caminho = _caminho_upload(token)
     if caminho is None:
         return None, None, {}
@@ -129,6 +130,12 @@ def _preparar_revisao(token):
     # Resolve a catarata particular JÁ no preview: quando o usuário declara à
     # vista/parcelado, o valor entra no total e o repasse do fellow (40%) aparece.
     _resolver_cirurgias(resultado, dados)
+    # Preceptoria semanal também é aplicada no preview: ao Salvar (não só com Enter
+    # no campo), a linha de preceptoria já aparece no demonstrativo. (Diretoria 2026-06-23.)
+    _resolver_preceptoria(resultado, dados)
+    # idx único p/ as linhas sintéticas criadas acima (preceptoria/fellow) — evita
+    # colisão de hon_/classe_ com as linhas reais no formulário.
+    _indexar_sinteticas(resultado)
     _anotar_selecoes(resultado, dados)
     return resultado, aviso, dados
 
@@ -152,12 +159,32 @@ def _filtrar_blocos(resultado):
     resultado.blocos = novos
 
 
+# Status especial: taxa de sala com valor em aberto. Aparece na revisão com campo
+# de valor vazio; só entra no repasse/a pagar se o usuário informar um valor devido.
+STATUS_TAXA_SALA = 'taxa_sala'
+
+
+def _marcar_taxas_sala(resultado):
+    """Taxas de sala ficam VISÍVEIS na revisão com valor em aberto (diretoria
+    2026-06-23): o usuário informa o valor só se for devido ao médico; em branco,
+    são desconsideradas no repasse. (Antes eram removidas da revisão.)"""
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            if p.classe == medplus.CLASSE_TAXA:
+                # Respeita um valor já vindo de correção memorizada (correcoes.aplicar
+                # roda antes): só deixa "em aberto" quem ainda não tem valor.
+                if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                    continue
+                p.status_calculo = STATUS_TAXA_SALA
+                p.honorario = None
+                p.motivo_calculo = ('Taxa de sala — informe o valor só se for devido '
+                                    'ao médico; em branco, fica fora do repasse.')
+
+
 def _linha_vale(p):
-    """Linhas que NÃO entram em nenhum lugar (nem preview): R$0, componentes,
-    taxas de sala/utilização e 'Não faturável'."""
+    """Linhas que NÃO entram em nenhum lugar (nem preview): R$0, componentes e
+    'Não faturável'. As taxas de sala AGORA permanecem (valor opcional na revisão)."""
     if p.status_calculo in ('nao_recebe', 'componente'):
-        return False
-    if p.classe == medplus.CLASSE_TAXA:
         return False
     if 'nao faturavel' in regras.normalizar(p.procedimento):
         return False
@@ -198,6 +225,7 @@ def _ler_e_processar(caminho, nome=''):
                             if not regras.eh_residente(livro, b.profissional)]
         _aplicar_keiti(resultado)
         _marcar_preceptoria(resultado, livro)
+        _marcar_taxas_sala(resultado)
     _limpar_linhas(resultado)
     _indexar(resultado)
     return resultado, aviso
@@ -257,7 +285,8 @@ def _oci_residentes(resultado, livro):
         for p in bloco.procedimentos:
             if regras.mapear_convenio(p.convenio) == 'oci':
                 r = regras.calcular(livro, p.procedimento, p.convenio, p.valor,
-                                    responsavel.nome, medico_obj=responsavel)
+                                    responsavel.nome, medico_obj=responsavel,
+                                    quantidade=p.quantidade)
                 p.honorario = r.honorario
                 p.status_calculo = r.status
                 p.motivo_calculo = (f'OCI feito por residente ({bloco.profissional}) — '
@@ -335,6 +364,20 @@ def _indexar(resultado):
             i += 1
 
 
+def _indexar_sinteticas(resultado):
+    """Dá um idx ÚNICO às linhas sintéticas (preceptoria / participação do fellow)
+    criadas na revisão — sem mexer no idx das linhas reais (preserva o casamento do
+    rascunho). Sem isso elas ficariam com idx=0 (default) e colidiriam com a 1a linha
+    real (hon_0 duplicado no formulário, corrompendo o honorário no Salvar)."""
+    reais = [p.idx for b in resultado.blocos for p in b.procedimentos if not p.sintetica]
+    nxt = (max(reais) + 1) if reais else 0
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            if p.sintetica:
+                p.idx = nxt
+                nxt += 1
+
+
 def _num(texto):
     t = (texto or '').strip().replace('R$', '').replace(' ', '')
     if not t:
@@ -405,6 +448,7 @@ def _resolver_cirurgias(resultado, post):
                     honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA, hora=p.hora)
                 linha.honorario = round(total * regras.FELLOW_PERCENTUAL, 2)
                 linha.status_calculo = 'calculado'
+                linha.sintetica = True   # linha derivada — só-leitura, idx único (não colide com hon_)
                 linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
                 extras[(fellow, p.data, p.clinica)].append(linha)
             else:
@@ -441,6 +485,7 @@ def _resolver_preceptoria(resultado, post):
             classe=medplus.CLASSE_PRECEPTORIA)
         linha.honorario = round(valor, 2)
         linha.status_calculo = 'calculado'
+        linha.sintetica = True   # linha derivada — só-leitura, idx único (não colide com hon_)
         linha.motivo_calculo = 'Repasse de preceptoria semanal.'
         bloco.procedimentos.append(linha)
 
@@ -652,9 +697,9 @@ def exportar(request):
         raise Http404('Arquivo da importação não encontrado — refaça o upload.')
 
     _salvar_rascunho(token, request.POST)               # persiste as edições
-    resultado, aviso, dados = _preparar_revisao(token)  # reaplica edições + anestesistas + catarata
+    # _preparar_revisao já resolve anestesistas, catarata E preceptoria
+    resultado, aviso, dados = _preparar_revisao(token)
     info = _memorizar_correcoes(resultado, request.POST)
-    _resolver_preceptoria(resultado, dados)             # cirurgias já resolvidas em _preparar_revisao
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
@@ -706,8 +751,7 @@ def _gerar_arquivos_por_dia(resultado):
     arquivos, pend = [], []
 
     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
-    receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE,
-                                        settings.OMIE_CATEGORIA_RECEBER)
+    receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE)
     arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Pagar.xlsx', pagar.conteudo))
     arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Receber.xlsx', receber.conteudo))
     pend += pagar.pendencias + receber.pendencias
@@ -853,6 +897,7 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
         'total_pagar': round(total_pagar, 2), 'total_receber': round(total_receber, 2),
         'pasta_saida': pasta_saida, 'downloads': downloads,
         'auditoria': _auditoria_lote(resultado, dados), 'fingerprints': fps,
+        'edicoes': dados or {},   # rascunho da revisão — permite reabrir e editar o lote
     }
     if arq_nome:
         defaults['arquivo_nome'] = arq_nome  # não sobrescreve o nome bom com vazio
@@ -943,6 +988,54 @@ def lote_status(request, pk):
                 r.status = novo
                 r.save()
     return redirect('repasses:lote_detalhe', pk=lote.id)
+
+
+def lote_reabrir(request, pk):
+    """Reabre um lote já feito para edição livre na tela de revisão (igual à 1a vez).
+
+    Restaura o arquivo importado e as edições salvas do lote e devolve a revisão;
+    ao Exportar de novo, o MESMO lote é atualizado (mesmo token). Bloqueado se o lote
+    estiver 'fixado' (algum repasse pago) — a diretoria reverte o status p/ liberar."""
+    if request.method != 'POST':
+        raise Http404()
+    lote = get_object_or_404(Lote, pk=pk)
+    if lote.fixado:
+        messages.error(request, 'Este lote tem repasse(s) já PAGO(s) e está fixado. '
+                       'Para editar, reverta o status do pagamento na lista de repasses abaixo.')
+        return redirect('repasses:lote_detalhe', pk=lote.id)
+    caminho = _caminho_upload(lote.token)
+    if caminho is None:
+        messages.error(request, 'O relatório importado deste lote não está mais disponível — '
+                       'não dá para reabrir. Reimporte o arquivo da MedPlus.')
+        return redirect('repasses:lote_detalhe', pk=lote.id)
+    # Restaura o rascunho deste lote (a importação de outro arquivo zera os rascunhos).
+    RepasseRascunho.objects.update_or_create(
+        token=lote.token,
+        defaults={'arquivo_nome': lote.arquivo_nome or '', 'dados': lote.edicoes or {}})
+    try:
+        resultado, aviso, dados = _preparar_revisao(lote.token)
+    except medplus.ErroLeituraMedPlus as exc:
+        messages.error(request, f'Não foi possível ler o relatório do lote: {exc}')
+        return redirect('repasses:lote_detalhe', pk=lote.id)
+    info = [f'✏️ Editando o lote #{lote.id} ({lote.arquivo_nome or lote.token}). '
+            'Faça as alterações e clique em Exportar para atualizar este mesmo lote.']
+    return render(request, 'repasses/revisao.html',
+                  _ctx_revisao(resultado, lote.token, aviso, info=info, edicoes=dados))
+
+
+def lote_excluir(request, pk):
+    """Exclui um lote do histórico (e seus repasses/arquivos). Bloqueado se fixado (pago)."""
+    if request.method != 'POST':
+        raise Http404()
+    lote = get_object_or_404(Lote, pk=pk)
+    if lote.fixado:
+        messages.error(request, 'Este lote tem repasse(s) já PAGO(s) e está fixado — não pode ser '
+                       'excluído. Reverta o status do pagamento se precisar mesmo apagá-lo.')
+        return redirect('repasses:lote_detalhe', pk=lote.id)
+    rotulo = lote.arquivo_nome or lote.token
+    lote.delete()
+    messages.success(request, f'Lote #{pk} ({rotulo}) excluído do histórico.')
+    return redirect('repasses:lotes')
 
 
 # --- Correções memorizadas ----------------------------------------------------

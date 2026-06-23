@@ -13,7 +13,7 @@ import os
 import unittest
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import Client, SimpleTestCase, TestCase
 
 from repasses.services import medplus, omie, regras, repasse
 
@@ -22,6 +22,7 @@ F18 = os.path.join(_AMOSTRAS, 'medplus_18_06.xls')             # Heric, com Valo
 FEXPORT = os.path.join(_AMOSTRAS, 'medplus_export.xls')        # 3 médicos (Tharcila gold 3250)
 FFILIAIS = os.path.join(_AMOSTRAS, 'medplus_maio_filiais.xls')  # com coluna Clínica
 FEXPORT2 = os.path.join(_AMOSTRAS, 'medplus_export_2.xls')      # tem OCI de residentes (Vida/Arthur)
+F22 = os.path.join(_AMOSTRAS, 'medplus_22_06.xls')             # Heric Qtd/tono (gold Matriz 2449.11, PR2/PR3 1220)
 PLANILHA = getattr(settings, 'REGRAS_REPASSE_PATH', '')
 
 
@@ -29,12 +30,15 @@ def _arquivos_presentes(*paths):
     return all(p and os.path.exists(p) for p in paths)
 
 
-def _total_medico(rel, frag):
-    """Soma dos honorários calculados (>0) do médico cujo nome contém frag."""
+def _total_medico(rel, frag, clinica=None):
+    """Soma dos honorários calculados (>0) do médico cujo nome contém frag.
+    Se `clinica` for dado, soma só os procedimentos daquela clínica."""
     total = 0.0
     for b in rel.blocos:
         if frag in b.profissional.lower():
             for p in b.procedimentos:
+                if clinica is not None and p.clinica != clinica:
+                    continue
                 if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
                     total += p.honorario
     return round(total, 2)
@@ -81,10 +85,17 @@ class MotorRegrasTests(SimpleTestCase):
         self.assertIsNotNone(th)
 
     def test_calcular_casos_conhecidos(self):
-        def calc(p, c, v=None, m='Dr. Heric Sakamoto'):
-            return regras.calcular(self.livro, p, c, v, m)
+        def calc(p, c, v=None, m='Dr. Heric Sakamoto', q=1):
+            return regras.calcular(self.livro, p, c, v, m, quantidade=q)
         self.assertEqual(calc('Consulta', 'Sus Maringá').honorario, 25.0)
-        self.assertEqual(calc('Consulta com Tonometria', 'Sus Maringá').honorario, 10.0)
+        # Consulta SUS: diferencia tonografia (paciente pagou < R$30 -> R$10) da
+        # consulta de avaliação normal (>= R$30 ou sem valor -> R$25). O texto
+        # "(Tono)" no nome NÃO decide — só o valor pago. (Diretoria 2026-06-23.)
+        self.assertEqual(calc('Consulta - Avaliação (Tono(1))', 'Sus Maringá', 12.0).honorario, 10.0)
+        self.assertEqual(calc('Consulta - Avaliação (Tono(1))', 'Sus Maringá', 38.37).honorario, 25.0)
+        # Qtd multiplica o valor fixo (mapeamento binocular Qtd=2 -> dobra).
+        self.assertEqual(calc('Mapeamento de Retina', 'Sus Maringá', 98.48, q=2).honorario, 50.0)
+        self.assertEqual(calc('Mapeamento de Retina', 'Sus Maringá', 98.48).honorario, 25.0)
         self.assertEqual(calc('Vitrectomia Posterior', 'Sus Maringá').honorario, 1000.0)
         self.assertEqual(calc('Vitrectomia Posterior com Infusão de Perfluocarbono',
                               'Sus Maringá').honorario, 1120.0)
@@ -120,6 +131,14 @@ class GoldsTests(SimpleTestCase):
     def test_gold_tharcila_export(self):
         self.assertEqual(_total_medico(self._processado(FEXPORT), 'tharcila'), 3250.0)
 
+    @unittest.skipUnless(_arquivos_presentes(F22), 'amostra 22/06 ausente')
+    def test_gold_heric_22_06(self):
+        # Gold 22/06: Qtd (mapeamento binocular=2 -> R$50) e consulta-tono por valor
+        # (avaliação SUS R$38,37 -> R$25, não R$10). Dois blocos por clínica.
+        rel = self._processado(F22)
+        self.assertEqual(_total_medico(rel, 'heric', 'Maringá - Matriz'), 2449.11)
+        self.assertEqual(_total_medico(rel, 'heric', 'Maringá - Filial PR2 e PR3'), 1220.0)
+
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, F18), 'amostras ausentes')
 class RepasseDocTests(SimpleTestCase):
@@ -151,6 +170,7 @@ class OmiePagarTests(SimpleTestCase):
         views._filtrar_blocos(rel)
         views._separar_por_dia(rel)
         regras.processar(rel, livro)
+        views._marcar_taxas_sala(rel)
         views._limpar_linhas(rel)
         rel.anestesistas = []
         conteudo = omie.gerar_contas_pagar(rel, settings.OMIE_PAGAR_TEMPLATE).conteudo
@@ -166,6 +186,44 @@ class OmiePagarTests(SimpleTestCase):
             r += 1
         self.assertGreater(linhas, 0)
         self.assertEqual(vazias, 0, 'nenhuma linha do a pagar pode sair sem categoria')
+
+
+class OmieReceberTests(SimpleTestCase):
+    """De-para clínica->CNPJ e categoria por grupo de convênio (a receber)."""
+
+    def test_cnpj_e_grupo(self):
+        self.assertEqual(omie.cnpj_filial('Maringá - Matriz'), '27.717.567/0001-30')
+        self.assertEqual(omie.cnpj_filial('Mandaguaçu'), '27.717.567/0002-10')
+        self.assertEqual(omie.cnpj_filial('Maringá - Filial PR2 e PR3'), '27.717.567/0007-25')
+        self.assertIsNone(omie.cnpj_filial('Clínica Inexistente'))
+        self.assertEqual(omie.grupo_receber('Sus Maringá'), 'SUS')
+        self.assertEqual(omie.grupo_receber('OCI - SUS'), 'SUS')
+        self.assertEqual(omie.grupo_receber('Cisamusep'), 'CISAMUSEP')
+        self.assertEqual(omie.grupo_receber('Particular'), 'PARTICULARES')
+        self.assertEqual(omie.grupo_receber('Parcerias I'), 'PARTICULARES')
+
+    @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
+    def test_receber_22_06_estrutura(self):
+        from openpyxl import load_workbook
+        from repasses import views
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel)
+        regras.processar(rel, livro)
+        rel.blocos = [b for b in rel.blocos if not regras.eh_residente(livro, b.profissional)]
+        views._marcar_taxas_sala(rel); views._limpar_linhas(rel)
+        res = omie.gerar_contas_receber(rel, settings.OMIE_RECEBER_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        r, linhas = omie.LINHA_INICIAL, 0
+        while ws.cell(r, omie.COL_NOME).value:
+            linhas += 1
+            cli = ws.cell(r, omie.COL_NOME).value
+            cat = ws.cell(r, omie.COL_CATEGORIA).value
+            self.assertRegex(str(cli), r'^\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}$')   # Cliente = CNPJ
+            self.assertIn(cat, ('SUS', 'CISAMUSEP', 'PARTICULARES'))
+            self.assertEqual(ws.cell(r, omie.COL_CONTA).value, omie.CONTA_CORRENTE)
+            r += 1
+        self.assertGreater(linhas, 0)
 
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, FEXPORT2), 'amostra com OCI de residente ausente')
@@ -220,3 +278,76 @@ class ParserUnitTests(SimpleTestCase):
                          medplus.SUBCLASSE_PROCEDIMENTO)
         self.assertEqual(medplus.subclasse_preview(p('Consulta', medplus.CLASSE_EXAME)),
                          medplus.SUBCLASSE_EXAME)
+        self.assertEqual(medplus.subclasse_preview(p('Facectomia', medplus.CLASSE_TAXA)),
+                         medplus.SUBCLASSE_TAXA)
+
+
+class IndexSinteticasTests(SimpleTestCase):
+    """idx ÚNICO p/ linhas sintéticas (preceptoria/fellow) — sem isso elas ficavam com
+    idx=0 e colidiam com a 1a linha real (hon_0 duplicado corrompia o honorário no Salvar)."""
+
+    def test_idx_unico_sem_colisao(self):
+        from types import SimpleNamespace
+        from repasses import views
+
+        def proc(nome, idx=0, sintetica=False):
+            p = medplus.Procedimento(None, '', '', nome, '', 1, None, None)
+            p.idx, p.sintetica = idx, sintetica
+            return p
+
+        b1 = medplus.BlocoMedico(profissional='Dr. A')
+        b1.procedimentos = [proc('X', 0), proc('Y', 1), proc('Preceptoria', 0, sintetica=True)]
+        b2 = medplus.BlocoMedico(profissional='Dr. B (fellow)')
+        b2.procedimentos = [proc('Z', 2), proc('Participação fellow', 0, sintetica=True)]
+        rel = SimpleNamespace(blocos=[b1, b2])
+
+        views._indexar_sinteticas(rel)
+        idxs = [p.idx for b in rel.blocos for p in b.procedimentos]
+        self.assertEqual(len(idxs), len(set(idxs)), 'nenhum idx pode repetir (senão hon_ colide)')
+        self.assertEqual([b1.procedimentos[0].idx, b1.procedimentos[1].idx], [0, 1])  # reais intactos
+        # sintéticas receberam idx acima do maior real (2)
+        self.assertGreater(b1.procedimentos[2].idx, 2)
+        self.assertGreater(b2.procedimentos[1].idx, 2)
+
+
+@unittest.skipUnless(_arquivos_presentes(F22), 'amostra 22/06 ausente')
+class LoteHistoricoTests(TestCase):
+    """Histórico: reabrir/editar/excluir um lote; fixado (pago) bloqueia."""
+
+    TOKEN = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.xls'
+
+    def _cria_lote(self):
+        from repasses.models import Lote, Repasse
+        with open(F22, 'rb') as f:
+            conteudo = f.read()
+        lote = Lote.objects.create(token=self.TOKEN, arquivo_nome='medplus_22_06.xls',
+                                   unidade='Maringá', upload_conteudo=conteudo, edicoes={})
+        Repasse.objects.create(lote=lote, medico='Dr. Heric Sakamoto',
+                               clinica='Maringá - Matriz', valor=100, status='gerado')
+        return lote
+
+    def test_reabrir_renderiza_revisao(self):
+        from repasses.models import RepasseRascunho
+        lote = self._cria_lote()
+        r = self.client.post(f'/lotes/{lote.id}/reabrir/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Editando o lote')
+        self.assertContains(r, self.TOKEN)            # form de revisão com o token do lote
+        self.assertTrue(RepasseRascunho.objects.filter(token=self.TOKEN).exists())
+
+    def test_pago_bloqueia_reabrir_e_excluir(self):
+        from repasses.models import Lote
+        lote = self._cria_lote()
+        rp = lote.repasses.first(); rp.status = 'pago'; rp.save()
+        self.assertTrue(lote.fixado)
+        r = self.client.post(f'/lotes/{lote.id}/reabrir/', follow=True)
+        self.assertContains(r, 'fixado')
+        self.client.post(f'/lotes/{lote.id}/excluir/')
+        self.assertTrue(Lote.objects.filter(id=lote.id).exists())   # não excluiu
+
+    def test_excluir_remove_em_cascata(self):
+        from repasses.models import Lote, Repasse
+        lote = self._cria_lote()
+        r = self.client.post(f'/lotes/{lote.id}/excluir/', follow=True)
+        self.assertFalse(Lote.objects.filter(id=lote.id).exists())
+        self.assertFalse(Repasse.objects.filter(lote_id=lote.id).exists())

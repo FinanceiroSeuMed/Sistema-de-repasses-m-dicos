@@ -70,6 +70,7 @@ def slug_status(valor):
         'a_definir': 'pendente',
         'componente': 'zero',
         'catarata': 'pendente',
+        'taxa_sala': 'taxa',
     }.get(valor, 'pendente')
 
 
@@ -81,6 +82,7 @@ def rotulo_status(valor):
         'a_definir': 'A definir',
         'componente': 'Cirurgia (à parte)',
         'catarata': 'Catarata (definir)',
+        'taxa_sala': 'Taxa de sala (opcional)',
     }.get(valor, 'A definir')
 
 
@@ -103,6 +105,7 @@ def slug_subclasse(valor):
         'Procedimentos': 'procedimento',
         'Exames e Consultas': 'exame',
         'Preceptorias': 'preceptoria',
+        'Taxas de Sala': 'taxa',
         'A classificar': 'indefinida',
     }.get(valor, 'indefinida')
 

@@ -24,7 +24,9 @@ from datetime import date
 
 from openpyxl import load_workbook
 
-from . import medplus
+import unicodedata
+
+from . import medplus, regras
 
 # Mapeamento classe -> categoria da OMIE (contas a pagar)
 CATEGORIA_POR_CLASSE = {
@@ -39,9 +41,49 @@ CLASSES_FORA_DO_PAGAR = {medplus.CLASSE_TAXA}
 
 CONTA_CORRENTE = 'Omie.CASH'
 
-# Contas a RECEBER: o Cliente somos nós (a associação); a filial vai no Departamento.
-# Na OMIE os clientes são todos "ASSOCIACAO SEUMED HOSPITAL DE OLHOS" por filial.
+# Contas a RECEBER: o Cliente somos nós (a associação). Como TODAS as filiais têm a
+# mesma razão social, o que distingue o recebedor na OMIE é o CNPJ — então é o CNPJ
+# que vai na coluna "Cliente" (chave de busca da OMIE). A filial também vai no
+# Departamento, por legibilidade. (Diretoria 2026-06-23.)
 CLIENTE_RECEBER = 'ASSOCIACAO SEUMED HOSPITAL DE OLHOS'
+
+# De-para clínica (nome no MedPlus) -> CNPJ da filial SeuMed na OMIE.
+# Obs.: o CNPJ .../0007-25 cobre PR2 (logradouro nº 819) e PR3 (nº 805) — mesmo CNPJ;
+# nossa clínica "Maringá - Filial PR2 e PR3" usa esse. (Diretoria 2026-06-23.)
+FILIAL_CNPJ = {
+    'maringa - matriz':            '27.717.567/0001-30',
+    'mandaguacu':                  '27.717.567/0002-10',
+    'paicandu':                    '27.717.567/0003-00',
+    'sarandi':                     '27.717.567/0004-82',
+    'maringa - av brasil':         '27.717.567/0005-63',
+    'mandaguari':                  '27.717.567/0006-44',
+    'maringa - filial pr2 e pr3':  '27.717.567/0007-25',
+}
+
+# Categoria do a receber por grupo de convênio (diretoria: SUS / CISAMUSEP / PARTICULARES).
+GRUPO_RECEBER = {
+    'sus': 'SUS',
+    'oci': 'SUS',                 # "OCI - SUS" é programa do SUS
+    'cisa': 'CISAMUSEP',
+    'particular': 'PARTICULARES',
+    'convenio': 'PARTICULARES',   # parcerias/convênios privados entram como particulares
+}
+GRUPO_RECEBER_FALLBACK = 'PARTICULARES'
+
+
+def _norm_clinica(nome: str) -> str:
+    s = unicodedata.normalize('NFKD', str(nome or '')).encode('ascii', 'ignore').decode()
+    return ' '.join(s.lower().split())
+
+
+def cnpj_filial(clinica: str) -> str | None:
+    """CNPJ da filial para a clínica (None se não houver de-para)."""
+    return FILIAL_CNPJ.get(_norm_clinica(clinica))
+
+
+def grupo_receber(convenio: str) -> str:
+    """Grupo de categoria do a receber (SUS / CISAMUSEP / PARTICULARES)."""
+    return GRUPO_RECEBER.get(regras.mapear_convenio(convenio), GRUPO_RECEBER_FALLBACK)
 
 # Colunas (1-indexadas) no layout das planilhas OMIE; dados começam na linha 6.
 LINHA_INICIAL = 6
@@ -141,8 +183,13 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
         observacao = f'Repasse {dia.strftime("%d/%m")} {medico}'
         por_classe = defaultdict(float)    # classe -> soma honorário (precisão cheia)
         for p in bloco.procedimentos:
-            if p.classe in CLASSES_FORA_DO_PAGAR:
-                continue  # taxa de sala só vai no a receber
+            if p.classe == medplus.CLASSE_TAXA:
+                # Taxa de sala: por padrão é receita da clínica (só no a receber).
+                # Entra no a pagar SÓ se o usuário informou na revisão um valor
+                # devido ao médico — aí é repasse de cirurgia. (Diretoria 2026-06-23.)
+                if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                    por_classe[medplus.CLASSE_CIRURGIA] += p.honorario
+                continue
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
                 por_classe[p.classe] += p.honorario
             elif p.status_calculo == 'a_definir':
@@ -175,33 +222,51 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
 
 
-def gerar_contas_receber(resultado, modelo_path, categoria_fallback='Outras Receitas com Serviços') -> ResultadoSaida:
-    """Uma linha por (dia × clínica) — recebimento geral dos pacientes.
+def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
+    """Uma linha por (dia × clínica × grupo de convênio).
 
-    Soma o valor bruto de todos os atendimentos daquele dia naquela clínica.
-    Observação = "Recebimento de atendimentos dd/mm Clínica"; Departamento = clínica.
+    Soma o valor bruto dos atendimentos daquele dia/clínica, separado por grupo
+    (SUS / CISAMUSEP / PARTICULARES = categoria). Cliente = CNPJ da filial (chave de
+    busca na OMIE, já que todas as filiais têm a mesma razão social); Departamento =
+    clínica; Observação = "Recebimento dd/mm Clínica — GRUPO".
     """
     ref = _data_referencia(resultado)
     pendencias = []
-    grupos = defaultdict(float)        # (dia, clínica) -> soma valor bruto
+    grupos = defaultdict(float)        # (dia, clínica, grupo) -> soma valor bruto
     sem_valor = 0
+    sem_cnpj = set()
+    conv_desconhecido = set()
     for bloco in resultado.blocos:
+        clinica = bloco.clinica or ''
         for p in bloco.procedimentos:
             if p.valor is None:
                 sem_valor += 1
                 continue
-            grupos[(bloco.data, bloco.clinica or '')] += p.valor
+            grupos[(bloco.data, clinica, grupo_receber(p.convenio))] += p.valor
+            # convênio que não casa em nenhum grupo (e não é taxa de sala) vai p/
+            # PARTICULARES por padrão, mas avisa — igual ao "a definir" do a pagar.
+            if p.classe != medplus.CLASSE_TAXA and regras.mapear_convenio(p.convenio) is None:
+                conv_desconhecido.add((p.convenio or '').strip() or '(em branco)')
+        if clinica and cnpj_filial(clinica) is None:
+            sem_cnpj.add(clinica)
     if sem_valor:
         pendencias.append(f'{sem_valor} procedimento(s) sem valor bruto (arquivo do médico não traz o valor) — '
                           'use o relatório completo da MedPlus para o contas a receber.')
+    for clinica in sorted(sem_cnpj):
+        pendencias.append(f'Clínica "{clinica}" sem CNPJ de filial mapeado — Cliente saiu como a razão '
+                          'social (a OMIE não consegue distinguir a filial). Cadastre o CNPJ.')
+    for conv in sorted(conv_desconhecido):
+        pendencias.append(f'Convênio "{conv}" não reconhecido — classificado como PARTICULARES no a '
+                          'receber; confirme a categoria (SUS / CISAMUSEP / PARTICULARES).')
 
     linhas = []
-    for (dia, clinica), soma in sorted(grupos.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+    for (dia, clinica, grupo), soma in sorted(grupos.items(),
+                                              key=lambda kv: (str(kv[0][0]), kv[0][1], kv[0][2])):
         d = dia or ref
         rotulo = f' {clinica}' if clinica else ''
-        linhas.append({'nome': CLIENTE_RECEBER, 'categoria': categoria_fallback,
+        linhas.append({'nome': cnpj_filial(clinica) or CLIENTE_RECEBER, 'categoria': grupo,
                        'valor': soma, 'registro': d, 'vencimento': venc_dia10_mes_seguinte(d),
-                       'observacao': f'Recebimento de atendimentos {d.strftime("%d/%m")}{rotulo}',
+                       'observacao': f'Recebimento {d.strftime("%d/%m")}{rotulo} — {grupo}',
                        'departamento': clinica})
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_RECEBER)
     return ResultadoSaida('OMIE_Contas_a_Receber.xlsx', conteudo, n, pendencias)

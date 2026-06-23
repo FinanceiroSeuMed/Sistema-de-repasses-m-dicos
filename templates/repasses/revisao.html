@@ -134,7 +134,9 @@
                     <td class="num">{{ p.quantidade }}</td>
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
-                        {% if p.status_calculo == 'catarata' or p.eh_catarata_part %}
+                        {% if p.sintetica %}
+                        <span class="hon-fixo" title="{{ p.motivo_calculo }}">{{ p.honorario|moeda }}</span>
+                        {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select class="inp-classe" name="cat_modo_{{ p.idx }}">
                             <option value="">à vista/parcelado?</option>
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
@@ -143,7 +145,8 @@
                         <div class="cat-valor" data-valor="{{ p.honorario|valor_exato }}" title="{{ p.motivo_calculo }}">{% if p.honorario %}{{ p.honorario|moeda }}{% else %}declare a forma{% endif %}</div>
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
-                               value="{{ p.honorario|valor2 }}" placeholder="—"
+                               value="{{ p.honorario|valor2 }}"
+                               placeholder="{% if p.status_calculo == 'taxa_sala' %}opcional{% else %}—{% endif %}"
                                data-exato="{{ p.honorario|valor_exato }}"
                                title="{{ p.motivo_calculo }}">
                         <label class="memo" title="Salvar este valor para '{{ p.procedimento }}' / {{ p.convenio|default:'qualquer convênio' }} e reaplicar nos próximos meses">
@@ -153,7 +156,9 @@
                     </td>
                     <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span>{% if 'memorizada' in p.motivo_calculo %} <span class="badge badge-memo" title="{{ p.motivo_calculo }}">memorizado</span>{% endif %}</td>
                     <td>
-                        {% if p.status_calculo == 'catarata' or p.eh_catarata_part %}
+                        {% if p.sintetica %}
+                        <span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span>
+                        {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select class="inp-classe" name="cat_fellow_{{ p.idx }}">
                             <option value="">sem fellow</option>
                             {% for f in fellows %}<option value="{{ f.nome }}"{% if f.nome == p.sel_cat_fellow %} selected{% endif %}>{{ f.nome }}</option>{% endfor %}

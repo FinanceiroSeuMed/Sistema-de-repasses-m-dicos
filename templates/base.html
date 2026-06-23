@@ -29,6 +29,13 @@
     </header>
 
     <main class="conteudo">
+        {% if messages %}
+        <div class="mensagens">
+            {% for m in messages %}
+            <div class="msg msg-{{ m.tags }}">{{ m }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 

@@ -136,9 +136,8 @@ REGRAS_REPASSE_PATH = BASE_DIR / 'amostras' / 'regras_repasse.xlsx'
 OMIE_PAGAR_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
 OMIE_RECEBER_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
 
-# Categoria ÚNICA do contas a RECEBER (hoje o a receber é "recebimento geral" por
-# dia/clínica — uma só categoria; não há mais classificação por atendimento).
-OMIE_CATEGORIA_RECEBER = 'Outras Receitas com Serviços'
+# A categoria do contas a RECEBER agora é por grupo de convênio (SUS / CISAMUSEP /
+# PARTICULARES) — ver omie.GRUPO_RECEBER. Não há mais categoria única configurável aqui.
 
 # Pasta onde os arquivos gerados ficam disponíveis para download
 SAIDAS_DIR = BASE_DIR / 'saidas'

@@ -36,6 +36,13 @@ def _data_bloco(bloco):
     return max(datas) if datas else None
 
 
+def _titulo_clinica(bloco, unidade: str) -> str:
+    """Topo do documento de repasse = só a CLÍNICA dos atendimentos daquele bloco
+    (ex.: "Maringá - Matriz"), não o banner completo da MedPlus com todas as
+    unidades. Cai para `unidade` se o bloco não trouxer clínica. (Diretoria 2026-06-23.)"""
+    return (getattr(bloco, 'clinica', '') or '').strip() or unidade or 'Repasse Médico'
+
+
 def nome_base(bloco) -> str:
     """Ex.: 'Dr. Heric Sakamoto 16-06' ou 'Dr. Carlos 08-05 - Paiçandu'."""
     nome = _INVALIDO.sub('', bloco.profissional).strip().rstrip('.').strip()
@@ -96,7 +103,7 @@ def gerar_excel(bloco, unidade: str) -> bytes:
     cabec_fill = PatternFill('solid', fgColor='0B5FA5')
     cabec_font = Font(bold=True, color='FFFFFF')
 
-    ws['A1'] = unidade or 'Repasse Médico'
+    ws['A1'] = _titulo_clinica(bloco, unidade)
     ws['A1'].font = titulo
     ws['A2'] = 'Demonstrativo de Repasse Médico'
     ws['A2'].font = negrito
@@ -170,7 +177,7 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     st_cel = ParagraphStyle('c', parent=estilos['Normal'], fontSize=8.5, leading=11)
 
     elems = [
-        Paragraph(unidade or 'Repasse Médico', st_titulo),
+        Paragraph(_titulo_clinica(bloco, unidade), st_titulo),
         Paragraph('Demonstrativo de Repasse Médico', st_sub),
         Spacer(1, 8),
         Paragraph(f'<b>Profissional:</b> {bloco.profissional}', st_info),
@@ -234,7 +241,7 @@ def gerar_excel_anestesista(entry, unidade: str) -> bytes:
     cabec_fill = PatternFill('solid', fgColor='0B5FA5')
     cabec_font = Font(bold=True, color='FFFFFF')
 
-    ws['A1'] = unidade or 'Repasse de Anestesia'
+    ws['A1'] = (entry.get('clinica') or '').strip() or unidade or 'Repasse de Anestesia'
     ws['A1'].font = titulo
     ws['A2'] = 'Demonstrativo de Repasse de Anestesia'
     ws['A2'].font = negrito
@@ -288,7 +295,7 @@ def gerar_pdf_anestesista(entry, unidade: str) -> bytes:
 
     data = entry.get('data')
     elems = [
-        Paragraph(unidade or 'Repasse de Anestesia', st_titulo),
+        Paragraph((entry.get('clinica') or '').strip() or unidade or 'Repasse de Anestesia', st_titulo),
         Paragraph('Demonstrativo de Repasse de Anestesia', st_sub),
         Spacer(1, 8),
         Paragraph(f'<b>Anestesista:</b> {entry.get("anestesista")}', st_info),

@@ -463,10 +463,15 @@ _NAO_RESOLVIDO = object()   # sentinela: "resolver o médico pelo nome"
 
 
 def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico: str = '',
-             limiar: float = 0.6, medico_obj=_NAO_RESOLVIDO) -> ResultadoCalculo:
+             limiar: float = 0.6, medico_obj=_NAO_RESOLVIDO, quantidade: int = 1) -> ResultadoCalculo:
     pagador = mapear_convenio(convenio)
     if pagador is None:
         return ResultadoCalculo(A_DEFINIR, None, motivo=f'Convênio não reconhecido: "{convenio}".')
+
+    # Quantidade do procedimento (ex.: mapeamento BINOCULAR vem com Qtd=2). Vale
+    # para os valores FIXOS (R$ por unidade × Qtd); o percentual já incide sobre o
+    # valor bruto total, então não multiplica.
+    q = quantidade if (quantidade and quantidade > 0) else 1
 
     # Componente de cirurgia (anestesista/hospital): não conta no cirurgião
     componente = _componente_cirurgia(procedimento)
@@ -531,10 +536,15 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
     _, _, regra = candidatos[0]
     tipo, val = regra.classif.get(pagador, (SEM_VALOR, None))
 
-    # Consulta no SUS: a regular é R$ 25, mas a consulta COM TONOMETRIA ("tono")
-    # vira R$ 10 (valor pago pelo SUS é constante e distingue os dois casos).
-    if regra.nome_norm == 'consulta' and pagador == 'sus' and 'tono' in normalizar(procedimento):
-        return ResultadoCalculo(CALCULADO, 10.0, motivo='Consulta com tonometria (SUS) — R$ 10.',
+    # Consulta no SUS: a de avaliação normal paga R$ 25 (valor da regra abaixo); a
+    # TONOGRAFIA paga só R$ 10. O texto "(Tono)" no nome NÃO distingue os dois — a
+    # avaliação do Dr. Heric vem como "(Tono(1))" e ainda assim é consulta normal.
+    # O que diferencia é o VALOR pago pelo paciente: a consulta de avaliação é mais
+    # cara (~R$ 38); a tonografia fica abaixo de R$ 30. (Diretoria, 2026-06-23.)
+    if (regra.nome_norm == 'consulta' and pagador == 'sus'
+            and valor is not None and (valor / q) < 30):
+        return ResultadoCalculo(CALCULADO, round(10.0 * q, 2),
+                                motivo='Tonografia SUS (paciente pagou < R$ 30/unid.) — R$ 10.',
                                 regra=regra.nome, tipo=FIXO)
 
     if tipo == NEGATIVO:
@@ -552,9 +562,11 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
         return ResultadoCalculo(CALCULADO, float(valor) * val,
                                 motivo=f'{val*100:.0f}% de {valor} (regra "{regra.nome}").',
                                 regra=regra.nome, tipo=tipo)
-    # FIXO
-    return ResultadoCalculo(CALCULADO, round(val, 2),
-                            motivo=f'Valor fixo (regra "{regra.nome}").', regra=regra.nome, tipo=tipo)
+    # FIXO — R$ por unidade × Qtd (mapeamento binocular Qtd=2 → dobra o repasse).
+    total = round(val * q, 2)
+    motivo = (f'Valor fixo (regra "{regra.nome}") × {q} = {total:.2f}.' if q > 1
+              else f'Valor fixo (regra "{regra.nome}").')
+    return ResultadoCalculo(CALCULADO, total, motivo=motivo, regra=regra.nome, tipo=tipo)
 
 
 # --- Orquestração: aplicar regras a um relatório lido -------------------------
@@ -615,7 +627,7 @@ def processar(resultado, livro: LivroRegras):
                 bloco.lembrete = f'Repasse de preceptoria a lançar à parte: {medico.obs}'
         for p in bloco.procedimentos:
             r = calcular(livro, p.procedimento, p.convenio, p.valor, bloco.profissional,
-                         medico_obj=medico)
+                         medico_obj=medico, quantidade=p.quantidade)
             p.honorario = r.honorario
             p.status_calculo = r.status
             p.motivo_calculo = r.motivo

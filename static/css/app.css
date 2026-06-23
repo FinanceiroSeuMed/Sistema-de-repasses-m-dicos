@@ -174,6 +174,18 @@ body {
 .alerta-erro { background: #fdecea; color: #b42318; border: 1px solid #f5c6c0; }
 .alerta-aviso { background: #fff7e6; color: #946200; border: 1px solid #ffe1a8; }
 
+.mensagens { margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.msg { border-radius: 10px; padding: 11px 16px; font-size: 14px; border: 1px solid transparent; }
+.msg-error { background: #fdecea; color: #b42318; border-color: #f5c6c0; }
+.msg-success { background: #f0f9f4; color: #1f7a52; border-color: #b6e3cd; }
+.msg-info, .msg-warning { background: #eaf3fb; color: #0b5fa5; border-color: #bcdcf5; }
+
+.acoes-lote { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.acoes-lote form { margin: 0; }
+
+/* Honorário só-leitura (linhas sintéticas: preceptoria / participação do fellow) */
+.hon-fixo { font-weight: 600; color: var(--azul); }
+
 .resumo-importacao { margin: 24px 0 8px; }
 .resumo-linha { display: flex; gap: 32px; flex-wrap: wrap; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; padding: 16px 24px; box-shadow: var(--sombra); }
 .resumo-rotulo { display: block; font-size: 12px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .4px; }
