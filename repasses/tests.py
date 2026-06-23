@@ -21,6 +21,7 @@ _AMOSTRAS = r'C:\RepassesmedicosOMIE\amostras'
 F18 = os.path.join(_AMOSTRAS, 'medplus_18_06.xls')             # Heric, com Valor (gold 4653.11)
 FEXPORT = os.path.join(_AMOSTRAS, 'medplus_export.xls')        # 3 médicos (Tharcila gold 3250)
 FFILIAIS = os.path.join(_AMOSTRAS, 'medplus_maio_filiais.xls')  # com coluna Clínica
+FEXPORT2 = os.path.join(_AMOSTRAS, 'medplus_export_2.xls')      # tem OCI de residentes (Vida/Arthur)
 PLANILHA = getattr(settings, 'REGRAS_REPASSE_PATH', '')
 
 
@@ -165,6 +166,33 @@ class OmiePagarTests(SimpleTestCase):
             r += 1
         self.assertGreater(linhas, 0)
         self.assertEqual(vazias, 0, 'nenhuma linha do a pagar pode sair sem categoria')
+
+
+@unittest.skipUnless(_arquivos_presentes(PLANILHA, FEXPORT2), 'amostra com OCI de residente ausente')
+class OciResidentesTests(SimpleTestCase):
+    """OCI feito por residente vai para o repasse do Dr. Alessander."""
+
+    def test_oci_residente_vai_para_alessander(self):
+        from repasses import views
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(FEXPORT2)
+        views._filtrar_blocos(rel)
+        views._separar_por_dia(rel)
+        regras.processar(rel, livro)
+        raw_res = sum(1 for b in rel.blocos if regras.eh_residente(livro, b.profissional)
+                      for p in b.procedimentos if regras.mapear_convenio(p.convenio) == 'oci')
+        self.assertGreater(raw_res, 0, 'o teste precisa de OCI em agenda de residente')
+
+        views._oci_residentes(rel, livro)
+        rel.blocos = [b for b in rel.blocos if not regras.eh_residente(livro, b.profissional)]
+
+        movidas = [(b, p) for b in rel.blocos for p in b.procedimentos
+                   if 'residente' in (p.motivo_calculo or '').lower()]
+        self.assertEqual(len(movidas), raw_res, 'todo OCI de residente deve ser transferido (nada perdido)')
+        # todas no bloco do Alessander e com honorário calculado (> 0)
+        for b, p in movidas:
+            self.assertIn('alessander', regras.normalizar(b.profissional))
+            self.assertGreater(p.honorario or 0, 0)
 
 
 class ParserUnitTests(SimpleTestCase):

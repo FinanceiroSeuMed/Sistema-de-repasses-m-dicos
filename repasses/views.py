@@ -189,6 +189,8 @@ def _ler_e_processar(caminho, nome=''):
                  '"a definir". Confira REGRAS_REPASSE_PATH.')
     else:
         regras.processar(resultado, livro)
+        # OCI feito por residente -> o repasse é do Dr. Alessander (residente não recebe)
+        _oci_residentes(resultado, livro)
         # Correções memorizadas: reaplicam ajustes manuais salvos em meses anteriores
         correcoes.aplicar(resultado)
         # Residentes não recebem -> não aparecem no preview nem na exportação
@@ -229,6 +231,54 @@ def _separar_por_dia(resultado):
         return (d or _date.max, c or '', nome)
 
     resultado.blocos = [grupos[k] for k in sorted(ordem, key=_chave)]
+
+
+# Médico que recebe o repasse do OCI feito por residentes (casa por trecho do nome).
+_OCI_RESPONSAVEL = 'alessander'
+
+
+def _oci_residentes(resultado, livro):
+    """OCI feito por residente: o residente NÃO recebe; o Dr. Alessander recebe.
+
+    Move as linhas de convênio OCI das agendas de residentes para o repasse do
+    Dr. Alessander (agrupando por dia/clínica), recalculando o honorário como se
+    ele as tivesse feito. As demais linhas do residente seguem o fluxo normal
+    (residente é filtrado depois). Rodar ANTES da filtragem de residentes."""
+    from collections import defaultdict
+    responsavel = next((m for m in livro.medicos
+                        if _OCI_RESPONSAVEL in regras.normalizar(m.nome)), None)
+    if responsavel is None:
+        return
+    extras = defaultdict(list)   # (data, clínica) -> linhas de OCI a transferir
+    for bloco in resultado.blocos:
+        if not regras.eh_residente(livro, bloco.profissional):
+            continue
+        mantidas = []
+        for p in bloco.procedimentos:
+            if regras.mapear_convenio(p.convenio) == 'oci':
+                r = regras.calcular(livro, p.procedimento, p.convenio, p.valor,
+                                    responsavel.nome, medico_obj=responsavel)
+                p.honorario = r.honorario
+                p.status_calculo = r.status
+                p.motivo_calculo = (f'OCI feito por residente ({bloco.profissional}) — '
+                                    f'repasse do {responsavel.nome}.')
+                extras[(bloco.data, bloco.clinica or '')].append(p)
+            else:
+                mantidas.append(p)
+        bloco.procedimentos = mantidas
+
+    alvo = regras.normalizar(responsavel.nome)
+    for (data, clinica), linhas in extras.items():
+        bloco = next((b for b in resultado.blocos
+                      if regras.normalizar(b.profissional) == alvo
+                      and b.data == data and (b.clinica or '') == clinica), None)
+        if bloco is None:
+            bloco = medplus.BlocoMedico(profissional=responsavel.nome,
+                                        razao_social=responsavel.razao_social or '')
+            bloco.data = data
+            bloco.clinica = clinica
+            resultado.blocos.append(bloco)
+        bloco.procedimentos.extend(linhas)
 
 
 def _aplicar_keiti(resultado):
