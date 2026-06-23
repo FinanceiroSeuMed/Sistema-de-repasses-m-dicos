@@ -12,7 +12,7 @@
     </p>
     <div class="hero-acoes">
         <a class="botao botao-primario" href="{% url 'repasses:importar' %}">Importar relatório da MedPlus</a>
-        <a class="botao botao-secundario" href="/admin/repasses/medico/">Gerenciar médicos</a>
+        <a class="botao botao-secundario" href="{% url 'repasses:medicos' %}">Gerenciar médicos</a>
     </div>
 </section>
 
@@ -28,57 +28,48 @@
 </section>
 
 <section class="modulos">
-    <h2>Módulos do sistema</h2>
+    <h2>O que dá para fazer</h2>
     <p class="modulos-intro">
-        O sistema está sendo construído por partes. Abaixo, o roteiro e o que já
-        está disponível neste protótipo.
+        Comece importando o relatório da MedPlus — daí o sistema calcula os
+        honorários, gera os arquivos da OMIE e os repasses, e guarda tudo no histórico.
     </p>
 
     <div class="grade-modulos">
+        <a href="{% url 'repasses:importar' %}" class="card-modulo pronto card-link">
+            <div class="card-modulo-topo"><span class="tag tag-pronto">Comece aqui</span></div>
+            <h3>Importar e revisar</h3>
+            <p>Leia o relatório da MedPlus, revise os honorários, declare anestesista
+               e catarata, e <strong>exporte</strong> os arquivos da OMIE (a pagar / a
+               receber) e os repasses em PDF/Excel.</p>
+        </a>
+
         <a href="{% url 'repasses:medicos' %}" class="card-modulo pronto card-link">
-            <div class="card-modulo-topo">
-                <span class="tag tag-pronto">Disponível</span>
-            </div>
+            <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
             <h3>Cadastro de Médicos</h3>
             <p>Fonte única dos profissionais: categoria, papéis (fellow, anestesista,
-               preceptor), razão social e regra de repasse.</p>
+               preceptor) e razão social.</p>
         </a>
 
-        <a href="{% url 'repasses:importar' %}" class="card-modulo pronto card-link">
-            <div class="card-modulo-topo">
-                <span class="tag tag-pronto">Disponível</span>
-            </div>
-            <h3>Importar agenda (MedPlus)</h3>
-            <p>Leitura do relatório de procedimentos realizados exportado do MedPlus,
-               base para o cálculo dos honorários.</p>
+        <a href="{% url 'repasses:regras' %}" class="card-modulo pronto card-link">
+            <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
+            <h3>Preços / Regras</h3>
+            <p>Consulte e <strong>edite</strong> o valor de repasse de cada procedimento
+               por convênio — entra direto no cálculo dos próximos repasses.</p>
         </a>
 
-        <div class="card-modulo">
-            <div class="card-modulo-topo">
-                <span class="tag">Planejado</span>
-            </div>
-            <h3>Regras de honorário</h3>
-            <p>Definição das regras de repasse por médico, procedimento e convênio,
-               versionadas e auditáveis.</p>
-        </div>
+        <a href="{% url 'repasses:lotes' %}" class="card-modulo pronto card-link">
+            <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
+            <h3>Histórico de lotes</h3>
+            <p>Reabra e re-baixe exportações anteriores, acompanhe o <strong>status do
+               pagamento</strong> (gerado → pago) e veja a auditoria dos ajustes.</p>
+        </a>
 
-        <div class="card-modulo">
-            <div class="card-modulo-topo">
-                <span class="tag">Planejado</span>
-            </div>
-            <h3>Exportar para OMIE</h3>
-            <p>Geração dos arquivos de importação de contas a pagar e a receber
-               no formato exato da OMIE.</p>
-        </div>
-
-        <div class="card-modulo">
-            <div class="card-modulo-topo">
-                <span class="tag">Planejado</span>
-            </div>
-            <h3>Repasse para o médico</h3>
-            <p>Emissão do documento de repasse (PDF) enviado ao médico para
-               conferência, com controle de envio e confirmação.</p>
-        </div>
+        <a href="{% url 'repasses:correcoes' %}" class="card-modulo pronto card-link">
+            <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
+            <h3>Correções memorizadas</h3>
+            <p>Os ajustes manuais que o sistema <strong>lembra e reaplica sozinho</strong>
+               nos próximos meses, sem você refazer.</p>
+        </a>
     </div>
 </section>
 {% endblock %}

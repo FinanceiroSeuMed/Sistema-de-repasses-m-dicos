@@ -1,4 +1,4 @@
-{% load static %}
+{% load static repasses_extras %}
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -14,15 +14,17 @@
                 <span class="marca-logo">SM</span>
                 <span class="marca-texto">SeuMed <small>Repasses Médicos</small></span>
             </a>
+            {% if request.resolver_match %}{% with sec=request.resolver_match.url_name|secao %}
             <nav class="nav">
-                <a href="{% url 'repasses:home' %}">Início</a>
-                <a href="{% url 'repasses:medicos' %}">Médicos</a>
-                <a href="{% url 'repasses:importar' %}">Importar</a>
-                <a href="{% url 'repasses:lotes' %}">Histórico</a>
-                <a href="{% url 'repasses:regras' %}">Regras</a>
-                <a href="{% url 'repasses:correcoes' %}">Correções</a>
+                <a href="{% url 'repasses:home' %}"{% if sec == 'home' %} class="ativo"{% endif %}>Início</a>
+                <a href="{% url 'repasses:medicos' %}"{% if sec == 'medicos' %} class="ativo"{% endif %}>Médicos</a>
+                <a href="{% url 'repasses:importar' %}"{% if sec == 'importar' %} class="ativo"{% endif %}>Importar</a>
+                <a href="{% url 'repasses:lotes' %}"{% if sec == 'lotes' %} class="ativo"{% endif %}>Histórico</a>
+                <a href="{% url 'repasses:regras' %}"{% if sec == 'regras' %} class="ativo"{% endif %}>Regras</a>
+                <a href="{% url 'repasses:correcoes' %}"{% if sec == 'correcoes' %} class="ativo"{% endif %}>Correções</a>
                 <a href="/admin/">Administração</a>
             </nav>
+            {% endwith %}{% endif %}
         </div>
     </header>
 

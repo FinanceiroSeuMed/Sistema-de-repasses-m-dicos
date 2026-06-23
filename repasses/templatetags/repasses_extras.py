@@ -3,6 +3,22 @@ from django import template
 register = template.Library()
 
 
+_SECAO = {
+    'home': 'home', 'medicos': 'medicos',
+    'importar': 'importar', 'salvar': 'importar', 'visualizar': 'importar',
+    'revisar': 'importar', 'exportar': 'importar',
+    'lotes': 'lotes', 'lote_detalhe': 'lotes', 'lote_status': 'lotes', 'baixar_lote': 'lotes',
+    'regras': 'regras', 'regras_salvar': 'regras',
+    'correcoes': 'correcoes', 'correcao_toggle': 'correcoes', 'correcao_remover': 'correcoes',
+}
+
+
+@register.filter
+def secao(url_name):
+    """Seção do menu correspondente à URL atual (para destacar o link ativo)."""
+    return _SECAO.get(url_name or '', '')
+
+
 @register.filter
 def moeda(valor):
     """Formata um número como moeda brasileira: 1234.5 -> 'R$ 1.234,50'."""
