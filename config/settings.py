@@ -151,3 +151,29 @@ UPLOADS_DIR = BASE_DIR / 'uploads'
 # do Django (1000) estourava (TooManyFieldsSent). Folga p/ ~50 mil atendimentos.
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 200_000
 DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024   # 50 MB (corpo do POST da revisão)
+
+
+# --- Empacotamento como .exe (PyInstaller) -----------------------------------
+# Quando roda congelado, os RECURSOS (templates, estáticos, modelos OMIE, planilha
+# de regras) vêm de dentro do pacote (sys._MEIPASS, só-leitura) e os DADOS graváveis
+# (banco, uploads, saídas) ficam numa pasta "dados" ao lado do executável. Em
+# desenvolvimento nada disso roda — segue tudo a partir de BASE_DIR.
+import sys
+
+if getattr(sys, 'frozen', False):
+    _RES = Path(getattr(sys, '_MEIPASS', BASE_DIR))                 # recursos empacotados
+    _DADOS = Path(sys.executable).resolve().parent / 'dados'       # gravável (ao lado do .exe)
+    _DADOS.mkdir(parents=True, exist_ok=True)
+
+    DEBUG = True                  # páginas de erro legíveis durante a validação
+    ALLOWED_HOSTS = ['*']         # ferramenta local de validação
+
+    TEMPLATES[0]['DIRS'] = [_RES / 'templates']
+    STATICFILES_DIRS = [_RES / 'static']
+    STATIC_ROOT = _DADOS / 'staticfiles'
+    REGRAS_REPASSE_PATH = _RES / 'amostras' / 'regras_repasse.xlsx'
+    OMIE_PAGAR_TEMPLATE = _RES / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
+    OMIE_RECEBER_TEMPLATE = _RES / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
+    DATABASES['default']['NAME'] = _DADOS / 'db.sqlite3'
+    SAIDAS_DIR = _DADOS / 'saidas'
+    UPLOADS_DIR = _DADOS / 'uploads'

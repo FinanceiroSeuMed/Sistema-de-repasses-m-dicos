@@ -33,3 +33,9 @@ Thumbs.db
 
 # Uploads temporários (relatórios aguardando revisão)
 /uploads/
+
+# Build do executável (PyInstaller) — artefatos, não versionar
+/build/
+/dist/
+*.spec
+/dados/
