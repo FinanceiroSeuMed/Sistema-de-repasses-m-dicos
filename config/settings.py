@@ -63,6 +63,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'repasses.context_processors.edicao_em_andamento',
             ],
         },
     },
@@ -144,3 +145,9 @@ SAIDAS_DIR = BASE_DIR / 'saidas'
 
 # Pasta de uploads temporários (relatório aguardando revisão antes de exportar)
 UPLOADS_DIR = BASE_DIR / 'uploads'
+
+# A revisão envia vários campos por procedimento (honorário, classe, memorizar...).
+# Num dia cheio são milhares de atendimentos -> milhares de campos no POST. O padrão
+# do Django (1000) estourava (TooManyFieldsSent). Folga p/ ~50 mil atendimentos.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 200_000
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024   # 50 MB (corpo do POST da revisão)

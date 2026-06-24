@@ -3,6 +3,12 @@
 {% block title %}Início — SeuMed Repasses Médicos{% endblock %}
 
 {% block content %}
+{% if edicao_em_andamento %}
+<div class="alerta alerta-info" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <span>📝 Você tem um repasse <strong>em edição</strong> — suas alterações ficam guardadas até exportar ou importar outro arquivo.</span>
+    <a class="botao botao-download" href="{% url 'repasses:continuar_edicao' %}">Continuar edição →</a>
+</div>
+{% endif %}
 <section class="hero">
     <h1>Sistema de Repasses Médicos</h1>
     <p class="subtitulo">

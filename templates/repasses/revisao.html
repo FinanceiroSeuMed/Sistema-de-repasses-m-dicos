@@ -68,10 +68,11 @@
 
 <section class="resumo-importacao">
     <div class="resumo-linha">
-        <div><span class="resumo-rotulo">Unidade</span><span class="resumo-valor">{{ resultado.unidade }}</span></div>
         <div><span class="resumo-rotulo">Médicos</span><span class="resumo-valor">{{ resultado.blocos|length }}</span></div>
-        <div><span class="resumo-rotulo">Procedimentos</span><span class="resumo-valor">{{ resultado.total_registros }}</span></div>
-        <div><span class="resumo-rotulo">Cirurgias</span><span class="resumo-valor">{{ qtd_cirurgias }}</span></div>
+        {% for sub, qtd in contagem_subclasses %}
+        <div><span class="resumo-rotulo">{{ sub }}</span><span class="resumo-valor">{{ qtd }}</span></div>
+        {% endfor %}
+        <div><span class="resumo-rotulo">Total de linhas</span><span class="resumo-valor">{{ resultado.total_registros }}</span></div>
     </div>
 </section>
 
@@ -187,6 +188,12 @@
                             <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
                         </select>
                         <div class="cat-valor" data-valor="{{ p.honorario|valor_exato }}" title="{{ p.motivo_calculo }}">{% if p.honorario %}{{ p.honorario|moeda }}{% else %}declare a forma{% endif %}</div>
+                        {% if p.sel_cat_fellow %}
+                        <div class="cat-split" title="Ajuste manual opcional — em branco usa o cálculo 60/40">
+                            <label>chefe 60% <input type="text" class="inp-split" name="cat_chefe_{{ p.idx }}" value="{{ p.sel_cat_chefe }}" placeholder="{{ p.chefe_calc|valor2 }}"></label>
+                            <label>fellow 40% <input type="text" class="inp-split" name="cat_fellowval_{{ p.idx }}" value="{{ p.sel_cat_fellowval }}" placeholder="{{ p.fellow_calc|valor2 }}"></label>
+                        </div>
+                        {% endif %}
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
                                value="{{ p.honorario|valor2 }}"
@@ -406,6 +413,13 @@
             }
         });
         recalcular(tabela);
+    });
+    // Trocar à vista/parcelado limpa o ajuste manual do 60/40 (recalcula no Salvar).
+    document.querySelectorAll('select[name^="cat_modo_"]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            var td = sel.closest('td');
+            if (td) td.querySelectorAll('.inp-split').forEach(function (i) { i.value = ''; });
+        });
     });
 })();
 </script>

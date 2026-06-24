@@ -84,7 +84,9 @@ NEGATIVO = 'negativo'        # "-" -> não recebe
 _PAGADORES = ('particular', 'convenio', 'sus', 'oci', 'cisa')
 
 # Convênios que devem ser tratados como Particular no cálculo do honorário.
-_CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica', 'amil')
+# Copel e Sanepar seguem a regra de particular (diretoria 2026-06-24).
+_CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica', 'amil',
+                              'copel', 'sanepar')
 
 # palavras pouco informativas, ignoradas no casamento
 _STOP = {'a', 'o', 'de', 'da', 'do', 'com', 'e', 'c', 'em', 'por', '-', 'ao', 'mono'}
@@ -267,8 +269,14 @@ class LivroRegras:
         deixava nomes abreviados escaparem e casava pessoas diferentes). Exige que
         o nome MENOR esteja praticamente todo contido no maior, com ≥2 tokens
         casados (ou nome de 1 token)."""
+        # Memo por instância: o mesmo nome é resolvido várias vezes por processamento
+        # (processar, OCI, keiti, preceptoria, correções). O livro vive 1 request.
+        cache = self.__dict__.setdefault('_cache_medico', {})
+        if nome in cache:
+            return cache[nome]
         q = _tokens_nome(nome)
         if not q:
+            cache[nome] = None
             return None
         melhor, melhor_score = None, 0.0
         for m in self.medicos:

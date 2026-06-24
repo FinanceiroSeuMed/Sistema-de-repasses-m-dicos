@@ -186,6 +186,15 @@ body {
 /* Honorário só-leitura (linhas sintéticas: preceptoria / participação do fellow) */
 .hon-fixo { font-weight: 600; color: var(--azul); }
 
+/* Edição manual do split 60/40 (chefe / fellow) na catarata particular */
+.cat-split { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.cat-split label { font-size: 11px; color: var(--texto-suave); display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.inp-split { width: 74px; padding: 2px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; text-align: right; }
+
+/* Indicador "Em edição" no menu (repasse em cache) */
+.nav a.nav-edicao { background: #fff3d6; color: #946200; border-radius: 8px; }
+.nav a.nav-edicao:hover { background: #ffe9b3; }
+
 /* Selo "memorizar p/ N médicos" ao lado do checkbox de memorizar */
 .memo-resumo { display: block; font-size: 11px; color: var(--verde); font-weight: 600; }
 

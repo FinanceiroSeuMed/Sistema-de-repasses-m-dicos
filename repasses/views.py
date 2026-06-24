@@ -21,8 +21,34 @@ def home(request):
     contexto = {
         'total_medicos': Medico.objects.count(),
         'total_medicos_ativos': Medico.objects.filter(ativo=True).count(),
+        'edicao_em_andamento': _rascunho_em_andamento() is not None,
     }
     return render(request, 'repasses/home.html', contexto)
+
+
+def _rascunho_em_andamento():
+    """O rascunho do último import ainda em edição (com o arquivo disponível), ou None.
+    As edições só são largadas ao importar outro arquivo ou após exportar."""
+    for r in RepasseRascunho.objects.order_by('-atualizado_em'):
+        if _caminho_upload(r.token) is not None:
+            return r
+    return None
+
+
+def continuar_edicao(request):
+    """Volta para a revisão do último import em edição — as edições ficam em cache
+    (rascunho) enquanto se navega pelas outras abas. (Diretoria 2026-06-24.)"""
+    r = _rascunho_em_andamento()
+    if r is None:
+        messages.info(request, 'Não há repasse em edição. Importe um arquivo para começar.')
+        return redirect('repasses:importar')
+    try:
+        resultado, aviso, dados = _preparar_revisao(r.token)
+    except medplus.ErroLeituraMedPlus as exc:
+        messages.error(request, f'Não foi possível reabrir a edição: {exc}')
+        return redirect('repasses:importar')
+    return render(request, 'repasses/revisao.html',
+                  _ctx_revisao(resultado, r.token, aviso, edicoes=dados))
 
 
 def medicos(request):
@@ -79,7 +105,8 @@ def _caminho_upload(token: str):
 
 # Campos da revisão que ficam salvos (o resto — token, csrf, memorizar — não).
 _PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
-                      'anest_nome_', 'anest_horas_', 'preceptoria_')
+                      'cat_chefe_', 'cat_fellowval_',
+                      'anest_nome_', 'anest_horas_', 'preceptoria_', 'memo_medicos_')
 
 
 def _salvar_rascunho(token, post):
@@ -113,6 +140,8 @@ def _anotar_selecoes(resultado, dados):
         for p in bloco.procedimentos:
             p.sel_cat_modo = dados.get(f'cat_modo_{p.idx}', '')
             p.sel_cat_fellow = dados.get(f'cat_fellow_{p.idx}', '')
+            p.sel_cat_chefe = dados.get(f'cat_chefe_{p.idx}', '')
+            p.sel_cat_fellowval = dados.get(f'cat_fellowval_{p.idx}', '')
 
 
 def _preparar_revisao(token):
@@ -460,14 +489,41 @@ def _resolver_cirurgias(resultado, post):
             taxa = regras.CATARATA_AVISTA if modo == 'avista' else regras.CATARATA_PARCELADO
             total = taxa * p.valor
             if fellow:
-                p.honorario = round(total * (1 - regras.FELLOW_PERCENTUAL), 2)
-                p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 60%; fellow {fellow} 40%.'
+                # 60/40 calculado; o usuário pode SOBRESCREVER o valor final de cada um
+                # (campos cat_chefe_/cat_fellowval_). Em branco = usa o calculado. Se só um
+                # lado é informado, o outro fica com o RESTO (chefe+fellow = total sempre).
+                total_r = round(total, 2)
+                chefe_calc = round(total * (1 - regras.FELLOW_PERCENTUAL), 2)
+                fellow_calc = round(total_r - chefe_calc, 2)
+                chefe_ovr = _num(post.get(f'cat_chefe_{p.idx}'))
+                fellow_ovr = _num(post.get(f'cat_fellowval_{p.idx}'))
+                if chefe_ovr is not None and chefe_ovr < 0:      # negativo = digitação errada
+                    chefe_ovr = None
+                if fellow_ovr is not None and fellow_ovr < 0:
+                    fellow_ovr = None
+                manual = chefe_ovr is not None or fellow_ovr is not None
+                if chefe_ovr is not None and fellow_ovr is None:
+                    chefe_final, fellow_final = chefe_ovr, round(total_r - chefe_ovr, 2)
+                elif fellow_ovr is not None and chefe_ovr is None:
+                    fellow_final, chefe_final = fellow_ovr, round(total_r - fellow_ovr, 2)
+                elif chefe_ovr is not None and fellow_ovr is not None:
+                    chefe_final, fellow_final = chefe_ovr, fellow_ovr
+                    if round(chefe_ovr + fellow_ovr, 2) != total_r:
+                        resultado.log_edicoes.append(
+                            f'⚠ Catarata "{p.paciente}": chefe R$ {chefe_ovr:.2f} + fellow '
+                            f'R$ {fellow_ovr:.2f} = R$ {chefe_ovr+fellow_ovr:.2f} ≠ total R$ {total_r:.2f}.')
+                else:
+                    chefe_final, fellow_final = chefe_calc, fellow_calc
+                p.chefe_calc, p.fellow_calc = chefe_final, fellow_final   # placeholders = valor final
+                p.honorario = chefe_final
+                p.motivo_calculo = (f'Catarata particular ({modo}) — cirurgião 60%; fellow {fellow} 40%'
+                                    + (' (valores ajustados manualmente).' if manual else '.'))
                 linha = medplus.Procedimento(
                     data=p.data, data_texto=p.data_texto, paciente=p.paciente,
                     procedimento=f'{p.procedimento} (participação em cirurgia)',
                     convenio=p.convenio, quantidade=p.quantidade, valor=p.valor,
                     honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA, hora=p.hora)
-                linha.honorario = round(total * regras.FELLOW_PERCENTUAL, 2)
+                linha.honorario = fellow_final
                 linha.status_calculo = 'calculado'
                 linha.sintetica = True   # linha derivada — só-leitura, idx único (não colide com hon_)
                 linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
@@ -728,8 +784,15 @@ def visualizar(request):
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,
                  info=None, edicoes=None, avisos=None, lote_id=None):
-    cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
-                 if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
+    # Contagem por SUBCLASSE (igual ao detalhamento abaixo e ao repasse) — antes o
+    # topo somava Cirurgias + Procedimentos num número só ("Cirurgias" inflado) e
+    # mostrava o total geral como "Procedimentos". (Diretoria 2026-06-24.)
+    cont = Counter(medplus.subclasse_preview(p)
+                   for b in resultado.blocos for p in b.procedimentos
+                   if p.status_calculo != 'componente')
+    qtd_cirurgias = cont.get(medplus.SUBCLASSE_CIRURGIA, 0)
+    # Todas as subclasses presentes (somam o total) — reconciliam com o detalhamento.
+    contagem_subclasses = [(s, cont[s]) for s in medplus.SUBCLASSES if cont.get(s)]
     return {
         'resultado': resultado,
         'token': token,
@@ -741,7 +804,8 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
         'lote_id': lote_id,
-        'qtd_cirurgias': len(cirurgias),
+        'qtd_cirurgias': qtd_cirurgias,
+        'contagem_subclasses': contagem_subclasses,
         'classes': medplus.CLASSES,
         # Médicos novos (sem cadastro) a classificar + as categorias disponíveis.
         'medicos_novos': getattr(resultado, 'medicos_novos', []),
@@ -775,6 +839,9 @@ def exportar(request):
     avisos_dup = _registrar_lote(request, token, resultado, dados, pasta_saida, downloads)
     _guardar_arquivos_no_banco(token, arquivos)        # re-download não depende da pasta saídas/
     _guardar_upload_no_banco(token)                    # re-export sobrevive à limpeza de uploads/
+    # Exportado -> larga o cache de edições (vivem no lote agora; reabrir pelo histórico).
+    # O "Continuar edição" deixa de oferecer este import. (Diretoria 2026-06-24.)
+    RepasseRascunho.objects.filter(token=token).delete()
     pendencias = _resumir_pendencias(pend)
     lote = Lote.objects.filter(token=token).only('id').first()
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,

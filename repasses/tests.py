@@ -102,6 +102,12 @@ class MotorRegrasTests(SimpleTestCase):
         self.assertEqual(calc('Laudo - Retino/Angio', 'Sus Maringá').honorario, 10.0)
         self.assertEqual(calc('Laudo - Angio/Campi/Retino', 'Cisamusep').honorario, 30.0)
         self.assertAlmostEqual(calc('Sutura de Conjuntiva', 'Particular', 100.0).honorario, 24.0)
+        # Copel e Sanepar seguem a regra de particular (consulta = R$60, como o particular)
+        part = calc('Consulta em Oftalmologia', 'Particular', 150.0).honorario
+        self.assertEqual(calc('Consulta em Oftalmologia', 'Copel', 150.0).honorario, part)
+        self.assertEqual(calc('Consulta em Oftalmologia', 'Sanepar', 150.0).honorario, part)
+        self.assertEqual(regras.mapear_convenio('Copel'), 'particular')
+        self.assertEqual(regras.mapear_convenio('Sanepar'), 'particular')
 
     def test_faco_consulta_cisa_usa_base_cisa(self):
         # decisão da diretoria: CISA = base CISA (150) + consulta (25) = 175
@@ -380,6 +386,53 @@ class CorrecaoPorMedicoTests(TestCase):
                 for p in x.procedimentos if 'facoemulsifica' in p.procedimento.lower()
                 and (p.convenio or '').strip().lower().startswith('sus')]
         self.assertTrue(thar and all(abs(h - 777.0) < 0.01 for h in thar))
+
+
+class FellowSplitTests(TestCase):
+    """Catarata com fellow: 60/40 calculado e EDITÁVEL (override do chefe e do fellow)."""
+
+    def _rel_catarata(self, valor=1000.0):
+        from types import SimpleNamespace
+        p = medplus.Procedimento(None, '', 'Paciente X', 'Facoemulsificação', 'Particular', 1, valor, None)
+        p.idx = 5
+        p.status_calculo = regras.CATARATA
+        b = medplus.BlocoMedico(profissional='Dr. Chefe')
+        b.procedimentos = [p]
+        return SimpleNamespace(blocos=[b]), p
+
+    def _fellow_line(self, rel):
+        return next(x for bl in rel.blocos for x in bl.procedimentos if getattr(x, 'sintetica', False))
+
+    def test_calculado_60_40(self):
+        from repasses import views
+        rel, p = self._rel_catarata(1000.0)   # à vista 30% -> total 300; chefe 180, fellow 120
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow'})
+        self.assertAlmostEqual(p.honorario, 180.0)
+        self.assertAlmostEqual(self._fellow_line(rel).honorario, 120.0)
+
+    def test_override_ambos(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)   # à vista 30% -> total 3000
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
+                                        'cat_chefe_5': '1800', 'cat_fellowval_5': '1200'})
+        self.assertAlmostEqual(p.honorario, 1800.0)
+        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1200.0)
+
+    def test_override_um_lado_deriva_o_outro(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)   # total 3000; chefe 2000 -> fellow = 1000 (resto)
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
+                                        'cat_chefe_5': '2000'})
+        self.assertAlmostEqual(p.honorario, 2000.0)
+        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1000.0)   # 3000 - 2000
+
+    def test_override_negativo_ignorado(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)   # total 3000; -500 inválido -> usa 60/40
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
+                                        'cat_chefe_5': '-500'})
+        self.assertAlmostEqual(p.honorario, 1800.0)               # 60% de 3000
+        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1200.0)
 
 
 class IndexSinteticasTests(SimpleTestCase):
