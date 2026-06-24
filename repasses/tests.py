@@ -156,12 +156,14 @@ class RepasseDocTests(SimpleTestCase):
         regras.processar(rel, livro)
         self.bloco = next(b for b in rel.blocos if 'heric' in b.profissional.lower())
 
-    def test_total_e_ajuste(self):
-        total = repasse._total(self.bloco)
-        soma_exibida = round(sum(round(p.honorario, 2) for p in repasse.pagaveis(self.bloco)), 2)
+    def test_linhas_somam_o_total(self):
+        # Sem linha de "Arredondamento": a soma das linhas EXIBIDAS fecha com o Total
+        # (a diferença de centavos foi embutida numa linha). Documento de conferência.
+        cab, dados, total, n = repasse._linhas_repasse(self.bloco)
         self.assertEqual(total, 4653.11)
-        # linhas exibidas + ajuste = total (documento de conferência fecha)
-        self.assertEqual(round(soma_exibida + repasse._ajuste_arredondamento(self.bloco), 2), total)
+        soma_exibida = round(sum(linha[5] for linha in dados), 2)   # coluna Honorário
+        self.assertEqual(soma_exibida, total)
+        self.assertNotIn('Arredondamento', cab)
 
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
@@ -279,6 +281,40 @@ class OmieReceberTests(SimpleTestCase):
             self.assertEqual(ws.cell(r, omie.COL_CONTA).value, omie.CONTA_CORRENTE)
             r += 1
         self.assertGreater(linhas, 0)
+
+
+@unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
+class RelatorioMensalTests(SimpleTestCase):
+    """Relatório mensal compilado por Dr. (formato Repasses em Aberto)."""
+
+    def test_formato_e_resumo(self):
+        from openpyxl import load_workbook
+        from repasses.services import relatorio
+        from repasses import views
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel)
+        regras.processar(rel, livro)
+        rel.blocos = [b for b in rel.blocos if not regras.eh_residente(livro, b.profissional)]
+        views._marcar_taxas_sala(rel); views._limpar_linhas(rel)
+
+        linhas = omie.linhas_relatorio_pagar(rel)
+        self.assertTrue(linhas)
+        for ln in linhas:
+            self.assertRegex(ln['data'], r'^\d{4}-\d{2}-\d{2}$')          # data ISO (p/ JSON)
+            self.assertIn(ln['resumo'], ('Consultas e exames', 'Cirurgias e procedimentos',
+                                         'Preceptoria', 'Anestesia'))
+        conteudo = relatorio.gerar_relatorio_mensal(linhas, 'Teste')
+        ws = load_workbook(io.BytesIO(conteudo))['Contas a Pagar - Padrão']
+        self.assertEqual([ws.cell(1, c).value for c in range(1, 6)],
+                         ['Filial', 'Destino', 'DataVencimento', 'Valor', 'Categoria'])
+        nomes = [ws.cell(r, 2).value for r in range(2, 2 + len(linhas))]
+        self.assertEqual(nomes, sorted(nomes, key=lambda s: s.lower()))   # ordenado por Dr.
+        r, classes = 1, []
+        while ws.cell(r, 7).value and ws.cell(r, 7).value != 'TOTAL':
+            classes.append(ws.cell(r, 8).value); r += 1
+        self.assertEqual(ws.cell(r, 7).value, 'TOTAL')
+        self.assertAlmostEqual(round(sum(classes), 2), round(ws.cell(r, 8).value, 2))
 
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, FEXPORT2), 'amostra com OCI de residente ausente')
@@ -410,29 +446,32 @@ class FellowSplitTests(TestCase):
         self.assertAlmostEqual(p.honorario, 180.0)
         self.assertAlmostEqual(self._fellow_line(rel).honorario, 120.0)
 
-    def test_override_ambos(self):
+    def test_chefe_override_no_proprio_campo(self):
         from repasses import views
         rel, p = self._rel_catarata(10000.0)   # à vista 30% -> total 3000
         views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
-                                        'cat_chefe_5': '1800', 'cat_fellowval_5': '1200'})
-        self.assertAlmostEqual(p.honorario, 1800.0)
-        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1200.0)
-
-    def test_override_um_lado_deriva_o_outro(self):
-        from repasses import views
-        rel, p = self._rel_catarata(10000.0)   # total 3000; chefe 2000 -> fellow = 1000 (resto)
-        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
                                         'cat_chefe_5': '2000'})
-        self.assertAlmostEqual(p.honorario, 2000.0)
-        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1000.0)   # 3000 - 2000
+        self.assertAlmostEqual(p.honorario, 2000.0)                       # chefe sobrescrito
+        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1200.0)  # fellow segue 40%
 
-    def test_override_negativo_ignorado(self):
+    def test_fellow_override_na_propria_linha(self):
         from repasses import views
-        rel, p = self._rel_catarata(10000.0)   # total 3000; -500 inválido -> usa 60/40
+        rel, p = self._rel_catarata(10000.0)   # total 3000; chefe 1800, fellow 1200
+        post = {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow'}
+        views._resolver_cirurgias(rel, post)
+        views._indexar_sinteticas(rel)            # dá idx à linha do fellow
+        fl = self._fellow_line(rel)
+        post[f'hon_{fl.idx}'] = '900'             # edita o fellow NA LINHA DELE
+        views._aplicar_edicoes_sinteticas(rel, post)
+        self.assertAlmostEqual(fl.honorario, 900.0)
+        self.assertAlmostEqual(p.honorario, 1800.0)  # chefe segue 60% (independente)
+
+    def test_chefe_negativo_ignorado(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)   # -500 inválido -> usa 60%
         views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
                                         'cat_chefe_5': '-500'})
-        self.assertAlmostEqual(p.honorario, 1800.0)               # 60% de 3000
-        self.assertAlmostEqual(self._fellow_line(rel).honorario, 1200.0)
+        self.assertAlmostEqual(p.honorario, 1800.0)
 
 
 class IndexSinteticasTests(SimpleTestCase):

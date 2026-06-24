@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Relatório mensal{% endblock %}
+
+{% block content %}
+<section class="pagina-cabecalho">
+    <h1>Relatório mensal por médico</h1>
+    <p class="subtitulo-escuro">
+        Compila todos os repasses (a pagar) exportados de um mês num único arquivo,
+        ordenado por Dr., no formato <strong>"Repasses em Aberto"</strong>.
+    </p>
+</section>
+
+<section class="resumo-importacao">
+    <form method="get" class="filtro-mes" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+            <label class="resumo-rotulo" for="mes">Mês</label><br>
+            <select name="mes" id="mes" class="inp-classe" onchange="this.form.submit()">
+                {% for valor, rotulo in meses %}
+                <option value="{{ valor }}"{% if valor == mes %} selected{% endif %}>{{ rotulo }}</option>
+                {% empty %}
+                <option value="">— nenhum lote exportado ainda —</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if n_linhas %}
+        <a class="botao botao-download" href="?mes={{ mes }}&baixar=1">⬇ Baixar relatório ({{ nome_mes }})</a>
+        {% endif %}
+    </form>
+</section>
+
+{% if n_linhas %}
+<div class="resumo-importacao">
+    <div class="resumo-linha">
+        <div><span class="resumo-rotulo">Mês</span><span class="resumo-valor">{{ nome_mes }}</span></div>
+        <div><span class="resumo-rotulo">Lançamentos</span><span class="resumo-valor">{{ n_linhas }}</span></div>
+        <div><span class="resumo-rotulo">Médicos</span><span class="resumo-valor">{{ medicos|length }}</span></div>
+        <div><span class="resumo-rotulo">Total a pagar</span><span class="resumo-valor">{{ total|moeda }}</span></div>
+    </div>
+</div>
+
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>Resumo por classe</h2></div>
+    <table class="tabela">
+        <thead><tr><th>Classe</th><th class="num">Valor</th></tr></thead>
+        <tbody>
+            {% for nome, valor in resumo %}
+            <tr><td>{{ nome }}</td><td class="num">{{ valor|moeda }}</td></tr>
+            {% endfor %}
+        </tbody>
+        <tfoot><tr><td><strong>TOTAL</strong></td><td class="num"><strong>{{ total|moeda }}</strong></td></tr></tfoot>
+    </table>
+</section>
+
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>Por médico</h2></div>
+    <table class="tabela">
+        <thead><tr><th>Destino (Dr.)</th><th class="num">Valor no mês</th></tr></thead>
+        <tbody>
+            {% for nome, valor in medicos %}
+            <tr><td>{{ nome }}</td><td class="num">{{ valor|moeda }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+<div class="alerta alerta-info">Nenhum repasse exportado neste mês ainda. Importe e exporte um relatório primeiro.</div>
+{% endif %}
+{% endblock %}

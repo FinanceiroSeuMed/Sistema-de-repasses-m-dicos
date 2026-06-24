@@ -236,15 +236,60 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     for a in getattr(resultado, 'anestesistas', []):
         dia = a.get('data') or ref
         anest = _sem_sufixo(a.get('anestesista', ''))
+        cirurgiao = _sem_sufixo(a.get('cirurgiao', ''))
+        # Observação traz o cirurgião-chefe entre parênteses (diretoria 2026-06-24):
+        # "Repasse 22/06 Dra. Isabela Miwa Maeda (Dr. Rodolpho)".
+        obs = f'Repasse {dia.strftime("%d/%m")} {anest}' + (f' ({cirurgiao})' if cirurgiao else '')
         linhas.append({'nome': a.get('razao_social') or a.get('anestesista'),
                        'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
                        'registro': dia, 'vencimento': venc_dia10_mes_seguinte(dia),
-                       'observacao': f'Repasse {dia.strftime("%d/%m")} {anest}',
+                       'observacao': obs,
                        'departamento': departamento_cod(a.get('clinica', '')) or a.get('clinica', '')})
 
     linhas.sort(key=lambda x: (str(x['registro']), x['departamento'] or '', x['nome'], x['categoria']))
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_PAGAR)
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
+
+
+# Nome amigável da classe para o RESUMO do relatório mensal.
+RESUMO_CLASSE = {
+    medplus.CLASSE_EXAME: 'Consultas e exames',
+    medplus.CLASSE_CIRURGIA: 'Cirurgias e procedimentos',
+    medplus.CLASSE_PRECEPTORIA: 'Preceptoria',
+}
+
+
+def linhas_relatorio_pagar(resultado) -> list[dict]:
+    """Linhas do a pagar em formato amigável (e JSON-ready) p/ o relatório mensal:
+    {medico, clinica, classe, resumo, categoria, valor, vencimento, data} — uma por
+    (médico × dia × clínica × classe) + os anestesistas. Datas em ISO (YYYY-MM-DD)."""
+    ref = _data_referencia(resultado)
+    out = []
+    for bloco in resultado.blocos:
+        dia = bloco.data or ref
+        venc = venc_dia10_mes_seguinte(dia)
+        medico = _sem_sufixo(bloco.profissional)
+        por_classe = defaultdict(float)
+        for p in bloco.procedimentos:
+            if p.classe == medplus.CLASSE_TAXA:
+                if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                    por_classe[medplus.CLASSE_CIRURGIA] += p.honorario
+                continue
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                por_classe[p.classe] += p.honorario
+        for classe, soma in por_classe.items():
+            out.append({'medico': medico, 'clinica': bloco.clinica or '', 'classe': classe,
+                        'resumo': RESUMO_CLASSE.get(classe, classe),
+                        'categoria': CATEGORIA_POR_CLASSE.get(classe, classe),
+                        'valor': round(soma, 2), 'vencimento': venc.isoformat(),
+                        'data': dia.isoformat()})
+    for a in getattr(resultado, 'anestesistas', []):
+        dia = a.get('data') or ref
+        out.append({'medico': _sem_sufixo(a.get('anestesista', '')), 'clinica': a.get('clinica', '') or '',
+                    'classe': 'Anestesia', 'resumo': 'Anestesia', 'categoria': CATEGORIA_ANESTESISTA,
+                    'valor': round(float(a.get('valor') or 0), 2),
+                    'vencimento': venc_dia10_mes_seguinte(dia).isoformat(), 'data': dia.isoformat()})
+    return out
 
 
 def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
@@ -264,6 +309,8 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
     for bloco in resultado.blocos:
         clinica = bloco.clinica or ''
         for p in bloco.procedimentos:
+            if p.classe == medplus.CLASSE_PRECEPTORIA:
+                continue   # preceptoria é SÓ a pagar — não tem valor bruto nem avisa
             if p.valor is None:
                 sem_valor += 1
                 continue

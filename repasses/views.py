@@ -165,8 +165,21 @@ def _preparar_revisao(token):
     # idx único p/ as linhas sintéticas criadas acima (preceptoria/fellow) — evita
     # colisão de hon_/classe_ com as linhas reais no formulário.
     _indexar_sinteticas(resultado)
+    # Honorário editado na PRÓPRIA linha do fellow (idx só existe após o passo acima).
+    _aplicar_edicoes_sinteticas(resultado, dados)
     _anotar_selecoes(resultado, dados)
     return resultado, aviso, dados
+
+
+def _aplicar_edicoes_sinteticas(resultado, post):
+    """Aplica o honorário editado nas linhas sintéticas EDITÁVEIS (participação do
+    fellow), que ganham idx próprio depois de criadas e têm campo na sua linha."""
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            if getattr(p, 'editavel', False):
+                v = _num(post.get(f'hon_{p.idx}'))
+                if v is not None and v >= 0:
+                    p.honorario = v
 
 
 _RE_SUFIXO_CADASTRO = re.compile(r'\s*\([^)]*\)\s*$')
@@ -489,43 +502,27 @@ def _resolver_cirurgias(resultado, post):
             taxa = regras.CATARATA_AVISTA if modo == 'avista' else regras.CATARATA_PARCELADO
             total = taxa * p.valor
             if fellow:
-                # 60/40 calculado; o usuário pode SOBRESCREVER o valor final de cada um
-                # (campos cat_chefe_/cat_fellowval_). Em branco = usa o calculado. Se só um
-                # lado é informado, o outro fica com o RESTO (chefe+fellow = total sempre).
-                total_r = round(total, 2)
+                # 60/40 calculado, cada um EDITÁVEL no seu próprio campo:
+                #  - o chefe (60%) pelo campo cat_chefe_ na linha do cirurgião;
+                #  - o fellow (40%) pelo campo hon_ na PRÓPRIA linha de participação
+                #    (aplicado depois, em _aplicar_edicoes_sinteticas). (Diretoria 2026-06-24.)
                 chefe_calc = round(total * (1 - regras.FELLOW_PERCENTUAL), 2)
-                fellow_calc = round(total_r - chefe_calc, 2)
+                fellow_calc = round(round(total, 2) - chefe_calc, 2)
+                p.chefe_calc = chefe_calc                          # placeholder do cat_chefe
                 chefe_ovr = _num(post.get(f'cat_chefe_{p.idx}'))
-                fellow_ovr = _num(post.get(f'cat_fellowval_{p.idx}'))
-                if chefe_ovr is not None and chefe_ovr < 0:      # negativo = digitação errada
-                    chefe_ovr = None
-                if fellow_ovr is not None and fellow_ovr < 0:
-                    fellow_ovr = None
-                manual = chefe_ovr is not None or fellow_ovr is not None
-                if chefe_ovr is not None and fellow_ovr is None:
-                    chefe_final, fellow_final = chefe_ovr, round(total_r - chefe_ovr, 2)
-                elif fellow_ovr is not None and chefe_ovr is None:
-                    fellow_final, chefe_final = fellow_ovr, round(total_r - fellow_ovr, 2)
-                elif chefe_ovr is not None and fellow_ovr is not None:
-                    chefe_final, fellow_final = chefe_ovr, fellow_ovr
-                    if round(chefe_ovr + fellow_ovr, 2) != total_r:
-                        resultado.log_edicoes.append(
-                            f'⚠ Catarata "{p.paciente}": chefe R$ {chefe_ovr:.2f} + fellow '
-                            f'R$ {fellow_ovr:.2f} = R$ {chefe_ovr+fellow_ovr:.2f} ≠ total R$ {total_r:.2f}.')
-                else:
-                    chefe_final, fellow_final = chefe_calc, fellow_calc
-                p.chefe_calc, p.fellow_calc = chefe_final, fellow_final   # placeholders = valor final
-                p.honorario = chefe_final
+                manual_chefe = chefe_ovr is not None and chefe_ovr >= 0
+                p.honorario = chefe_ovr if manual_chefe else chefe_calc
                 p.motivo_calculo = (f'Catarata particular ({modo}) — cirurgião 60%; fellow {fellow} 40%'
-                                    + (' (valores ajustados manualmente).' if manual else '.'))
+                                    + (' (chefe ajustado).' if manual_chefe else '.'))
                 linha = medplus.Procedimento(
                     data=p.data, data_texto=p.data_texto, paciente=p.paciente,
                     procedimento=f'{p.procedimento} (participação em cirurgia)',
                     convenio=p.convenio, quantidade=p.quantidade, valor=p.valor,
                     honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA, hora=p.hora)
-                linha.honorario = fellow_final
+                linha.honorario = fellow_calc       # 40% padrão (editável na própria linha)
                 linha.status_calculo = 'calculado'
-                linha.sintetica = True   # linha derivada — só-leitura, idx único (não colide com hon_)
+                linha.sintetica = True
+                linha.editavel = True               # tem campo de honorário próprio
                 linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
                 extras[(fellow, p.data, p.clinica)].append(linha)
             else:
@@ -1073,6 +1070,7 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
         'pasta_saida': pasta_saida, 'downloads': downloads,
         'auditoria': _auditoria_lote(resultado, dados), 'fingerprints': fps,
         'edicoes': dados or {},   # rascunho da revisão — permite reabrir e editar o lote
+        'linhas_pagar': omie.linhas_relatorio_pagar(resultado),   # p/ o relatório mensal
     }
     if arq_nome:
         defaults['arquivo_nome'] = arq_nome  # não sobrescreve o nome bom com vazio
@@ -1123,6 +1121,38 @@ def lotes_lista(request):
         'total': len(lotes),
         'total_pagar': sum((l.total_pagar for l in lotes), 0),
         'pendentes_total': pendentes_total,
+    })
+
+
+def relatorio_mensal(request):
+    """Compila os repasses (a pagar) de um MÊS num único xlsx, ordenado por Dr.,
+    no formato "Repasses em Aberto" (anexo da diretoria)."""
+    from .services import relatorio
+    todas = []
+    for l in Lote.objects.only('linhas_pagar'):
+        todas.extend(l.linhas_pagar or [])
+    meses = sorted({(ln.get('data') or '')[:7] for ln in todas if ln.get('data')}, reverse=True)
+    mes = request.GET.get('mes') or (meses[0] if meses else '')
+    linhas_mes = [ln for ln in todas if (ln.get('data') or '').startswith(mes)] if mes else []
+
+    if request.GET.get('baixar') and linhas_mes:
+        titulo = f'Repasses em Aberto - {relatorio.nome_mes(mes)}'
+        conteudo = relatorio.gerar_relatorio_mensal(linhas_mes, titulo)
+        return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=f'{titulo}.xlsx')
+
+    resumo, por_medico = Counter(), Counter()
+    for ln in linhas_mes:
+        v = float(ln.get('valor') or 0)
+        resumo[ln.get('resumo') or 'Outros'] += v
+        por_medico[ln.get('medico') or '—'] += v
+    return render(request, 'repasses/relatorio_mensal.html', {
+        'meses': [(m, relatorio.nome_mes(m)) for m in meses],
+        'mes': mes,
+        'nome_mes': relatorio.nome_mes(mes) if mes else '',
+        'resumo': [(k, round(v, 2)) for k, v in resumo.most_common()],
+        'medicos': [(k, round(v, 2)) for k, v in sorted(por_medico.items())],
+        'total': round(sum(resumo.values()), 2),
+        'n_linhas': len(linhas_mes),
     })
 
 

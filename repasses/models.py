@@ -233,6 +233,7 @@ class Lote(models.Model):
     auditoria = models.JSONField('Ajustes manuais', default=list)    # lista de textos
     fingerprints = models.JSONField('Atendimentos', default=list)    # p/ duplicidade
     edicoes = models.JSONField('Edições da revisão', default=dict)   # rascunho p/ reabrir e editar
+    linhas_pagar = models.JSONField('Linhas do a pagar', default=list)  # p/ o relatório mensal
     upload_conteudo = models.BinaryField('Relatório importado', null=True, blank=True)  # o .xls de origem
 
     class Meta:

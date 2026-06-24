@@ -98,6 +98,7 @@ class Procedimento:
     eh_catarata_part: bool = False   # catarata particular resolvida (mantém o seletor na tela)
     sintetica: bool = False          # linha criada na revisão (preceptoria / participação do fellow):
                                      # valor derivado/digitado à parte, renderizada como só-leitura
+    editavel: bool = False           # linha sintética COM campo de honorário próprio (ex.: fellow)
 
 
 @dataclass

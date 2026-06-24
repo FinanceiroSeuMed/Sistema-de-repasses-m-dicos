@@ -179,7 +179,12 @@
                     <td class="num">{{ p.quantidade }}</td>
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
-                        {% if p.sintetica %}
+                        {% if p.sintetica and p.editavel %}
+                        {# Linha do fellow: honorário editável NA PRÓPRIA linha #}
+                        <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
+                               value="{{ p.honorario|valor2 }}" data-exato="{{ p.honorario|valor_exato }}"
+                               title="{{ p.motivo_calculo }}">
+                        {% elif p.sintetica %}
                         <span class="hon-fixo" title="{{ p.motivo_calculo }}">{{ p.honorario|moeda }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select class="inp-classe" name="cat_modo_{{ p.idx }}">
@@ -189,9 +194,8 @@
                         </select>
                         <div class="cat-valor" data-valor="{{ p.honorario|valor_exato }}" title="{{ p.motivo_calculo }}">{% if p.honorario %}{{ p.honorario|moeda }}{% else %}declare a forma{% endif %}</div>
                         {% if p.sel_cat_fellow %}
-                        <div class="cat-split" title="Ajuste manual opcional — em branco usa o cálculo 60/40">
-                            <label>chefe 60% <input type="text" class="inp-split" name="cat_chefe_{{ p.idx }}" value="{{ p.sel_cat_chefe }}" placeholder="{{ p.chefe_calc|valor2 }}"></label>
-                            <label>fellow 40% <input type="text" class="inp-split" name="cat_fellowval_{{ p.idx }}" value="{{ p.sel_cat_fellowval }}" placeholder="{{ p.fellow_calc|valor2 }}"></label>
+                        <div class="cat-split" title="Ajuste manual do chefe (60%). O fellow (40%) edita na linha dele.">
+                            <label>chefe <input type="text" class="inp-split" name="cat_chefe_{{ p.idx }}" value="{{ p.sel_cat_chefe }}" placeholder="{{ p.chefe_calc|valor2 }}"></label>
                         </div>
                         {% endif %}
                         {% else %}

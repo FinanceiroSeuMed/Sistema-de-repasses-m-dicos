@@ -94,12 +94,31 @@ def _ajuste_arredondamento(bloco, linhas=None) -> float:
 
 def _linhas_repasse(bloco):
     """Linhas da tabela do repasse (mesmo conteúdo no Excel e no PDF — idênticos).
-    Devolve (cabeçalho, linhas_de_dados, ajuste, total, n_pagaveis)."""
+    Devolve (cabeçalho, linhas_de_dados, total, n_pagaveis).
+
+    Sem linha de "Arredondamento": a diferença de centavos (da soma em precisão
+    cheia vs. as linhas exibidas com 2 casas) é EMBUTIDA em uma linha — preferindo
+    uma de valor percentual/fracionado; se não houver, na última — para a soma
+    exibida fechar com o Total, sem justificar a diferença. (Diretoria 2026-06-24.)"""
     linhas_pag = pagaveis(bloco)
+    total = _total(bloco, linhas_pag)
+    diff = _ajuste_arredondamento(bloco, linhas_pag)
+    alvo = None
+    if diff and linhas_pag:
+        for p in linhas_pag:
+            if round(p.honorario, 2) != round(p.honorario, 6):   # fração de centavo (percentual)
+                alvo = p
+                break
+        if alvo is None:
+            alvo = linhas_pag[-1]
     cab = ['Data', 'Paciente', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']
-    dados = [[p.data_texto, p.paciente, p.procedimento, p.convenio,
-              p.quantidade, round(p.honorario or 0, 2)] for p in linhas_pag]
-    return cab, dados, _ajuste_arredondamento(bloco, linhas_pag), _total(bloco, linhas_pag), len(linhas_pag)
+    dados = []
+    for p in linhas_pag:
+        val = round(p.honorario or 0, 2)
+        if p is alvo:
+            val = round(val + diff, 2)
+        dados.append([p.data_texto, p.paciente, p.procedimento, p.convenio, p.quantidade, val])
+    return cab, dados, total, len(linhas_pag)
 
 
 def gerar_excel(bloco, unidade: str) -> bytes:
@@ -128,7 +147,7 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         ws['A5'] = f'Data do atendimento: {data_ref.strftime("%d/%m/%Y")}'
     linha = 7
 
-    cab, dados, ajuste, total, _ = _linhas_repasse(bloco)
+    cab, dados, total, _ = _linhas_repasse(bloco)
     for c, titulo_col in enumerate(cab, start=1):
         cel = ws.cell(linha, c, titulo_col)
         cel.fill = cabec_fill
@@ -154,8 +173,6 @@ def gerar_excel(bloco, unidade: str) -> bytes:
             cel_v.font = negrito
         linha += 1
 
-    if ajuste:
-        _linha_total('Arredondamento:', ajuste)
     _linha_total('Total:', total, bold=True)
 
     larguras = [12, 26, 44, 16, 6, 14]
@@ -195,18 +212,16 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     # SEM aviso de preceptoria aqui — esse fica só na revisão. (Diretoria 2026-06-24.)
     elems.append(Spacer(1, 8))
 
-    cab, linhas_dados, ajuste, total, n_pag = _linhas_repasse(bloco)
+    cab, linhas_dados, total, n_pag = _linhas_repasse(bloco)
     # Mesmas colunas do Excel (inclui Paciente) — documentos idênticos.
     dados = [cab]
     for d in linhas_dados:
         dados.append([d[0], Paragraph(d[1] or '', st_cel), Paragraph(d[2], st_cel),
                       d[3], str(d[4]), moeda(d[5])])
-    # Total (e arredondamento): "Total:" na 1ª coluna, valor a seguir (mesclado),
-    # alinhado à esquerda — igual ao Excel.
-    n_extra = 0
-    if ajuste:
-        dados.append(['Arredondamento:', moeda(ajuste), '', '', '', '']); n_extra += 1
-    dados.append(['Total:', moeda(total), '', '', '', '']); n_extra += 1
+    # Total: "Total:" na 1ª coluna, valor a seguir (mesclado), à esquerda — igual ao
+    # Excel. Sem linha de "Arredondamento" (a diferença já entrou numa linha acima).
+    n_extra = 1
+    dados.append(['Total:', moeda(total), '', '', '', ''])
 
     tabela = Table(dados, colWidths=[20 * mm, 38 * mm, 54 * mm, 26 * mm, 12 * mm, 26 * mm], repeatRows=1)
     estilo_tab = [

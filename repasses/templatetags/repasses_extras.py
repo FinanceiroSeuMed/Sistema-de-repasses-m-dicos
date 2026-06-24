@@ -8,6 +8,7 @@ _SECAO = {
     'importar': 'importar', 'salvar': 'importar', 'visualizar': 'importar',
     'revisar': 'importar', 'exportar': 'importar',
     'lotes': 'lotes', 'lote_detalhe': 'lotes', 'lote_status': 'lotes', 'baixar_lote': 'lotes',
+    'relatorio_mensal': 'relatorio',
     'regras': 'regras', 'regras_salvar': 'regras',
     'correcoes': 'correcoes', 'correcao_toggle': 'correcoes', 'correcao_remover': 'correcoes',
 }

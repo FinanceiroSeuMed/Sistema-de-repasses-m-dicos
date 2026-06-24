@@ -21,6 +21,7 @@
                 <a href="{% url 'repasses:importar' %}"{% if sec == 'importar' %} class="ativo"{% endif %}>Importar</a>
                 {% if tem_edicao %}<a href="{% url 'repasses:continuar_edicao' %}" class="nav-edicao" title="Continuar o repasse em edição">📝 Em edição</a>{% endif %}
                 <a href="{% url 'repasses:lotes' %}"{% if sec == 'lotes' %} class="ativo"{% endif %}>Histórico</a>
+                <a href="{% url 'repasses:relatorio_mensal' %}"{% if sec == 'relatorio' %} class="ativo"{% endif %}>Relatório mensal</a>
                 <a href="{% url 'repasses:regras' %}"{% if sec == 'regras' %} class="ativo"{% endif %}>Regras</a>
                 <a href="{% url 'repasses:correcoes' %}"{% if sec == 'correcoes' %} class="ativo"{% endif %}>Correções</a>
                 <a href="/admin/">Administração</a>
