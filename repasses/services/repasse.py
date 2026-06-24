@@ -14,7 +14,7 @@ import io
 import re
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -92,7 +92,20 @@ def _ajuste_arredondamento(bloco, linhas=None) -> float:
 
 # --- Excel (arquivo interno) --------------------------------------------------
 
+def _linhas_repasse(bloco):
+    """Linhas da tabela do repasse (mesmo conteúdo no Excel e no PDF — idênticos).
+    Devolve (cabeçalho, linhas_de_dados, ajuste, total, n_pagaveis)."""
+    linhas_pag = pagaveis(bloco)
+    cab = ['Data', 'Paciente', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']
+    dados = [[p.data_texto, p.paciente, p.procedimento, p.convenio,
+              p.quantidade, round(p.honorario or 0, 2)] for p in linhas_pag]
+    return cab, dados, _ajuste_arredondamento(bloco, linhas_pag), _total(bloco, linhas_pag), len(linhas_pag)
+
+
 def gerar_excel(bloco, unidade: str) -> bytes:
+    """Excel de arquivamento — layout IDÊNTICO ao PDF enviado ao médico (mesmas
+    colunas, cabeçalho e total), para que abrir o Excel e salvar em PDF dê o mesmo
+    documento. SEM o aviso de preceptoria (esse fica só na revisão)."""
     data_ref = _data_bloco(bloco)
     wb = Workbook()
     ws = wb.active
@@ -102,6 +115,7 @@ def gerar_excel(bloco, unidade: str) -> bytes:
     titulo = Font(bold=True, size=14)
     cabec_fill = PatternFill('solid', fgColor='0B5FA5')
     cabec_font = Font(bold=True, color='FFFFFF')
+    esq = Alignment(horizontal='left')
 
     ws['A1'] = _titulo_clinica(bloco, unidade)
     ws['A1'].font = titulo
@@ -112,42 +126,37 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         ws['A4'] = f'Razão Social: {bloco.razao_social}'
     if data_ref:
         ws['A5'] = f'Data do atendimento: {data_ref.strftime("%d/%m/%Y")}'
-    linha = 6
-    if getattr(bloco, 'lembrete', ''):
-        ws.cell(linha, 1, f'⚠ {bloco.lembrete}').font = Font(italic=True, color='946200')
-        linha += 1
-    linha += 1
+    linha = 7
 
-    colunas = ['Data', 'Paciente', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']
-    for c, titulo_col in enumerate(colunas, start=1):
+    cab, dados, ajuste, total, _ = _linhas_repasse(bloco)
+    for c, titulo_col in enumerate(cab, start=1):
         cel = ws.cell(linha, c, titulo_col)
         cel.fill = cabec_fill
         cel.font = cabec_font
     linha += 1
 
-    linhas_pag = pagaveis(bloco)
-    for p in linhas_pag:
-        ws.cell(linha, 1, p.data_texto)
-        ws.cell(linha, 2, p.paciente)
-        ws.cell(linha, 3, p.procedimento)
-        ws.cell(linha, 4, p.convenio)
-        ws.cell(linha, 5, p.quantidade)
-        # valor já em 2 casas para a coluna fechar com o Total na conferência
-        cel_h = ws.cell(linha, 6, round(p.honorario or 0, 2))
-        cel_h.number_format = 'R$ #,##0.00'
+    for d in dados:
+        ws.cell(linha, 1, d[0]); ws.cell(linha, 2, d[1]); ws.cell(linha, 3, d[2])
+        ws.cell(linha, 4, d[3]); ws.cell(linha, 5, d[4])
+        cel_h = ws.cell(linha, 6, d[5]); cel_h.number_format = 'R$ #,##0.00'
         linha += 1
 
-    ajuste = _ajuste_arredondamento(bloco, linhas_pag)
+    def _linha_total(rotulo, valor, bold=False):
+        nonlocal linha
+        cel_rot = ws.cell(linha, 1, rotulo)
+        # "Total:" na 1ª coluna; valor na 2ª, agrupado com a 3ª, alinhado à esquerda.
+        ws.merge_cells(start_row=linha, start_column=2, end_row=linha, end_column=3)
+        cel_v = ws.cell(linha, 2, valor)
+        cel_v.number_format = 'R$ #,##0.00'
+        cel_v.alignment = esq
+        if bold:
+            cel_rot.font = negrito
+            cel_v.font = negrito
+        linha += 1
+
     if ajuste:
-        ws.cell(linha, 5, 'Arredondamento')
-        cel_aj = ws.cell(linha, 6, ajuste)
-        cel_aj.number_format = 'R$ #,##0.00'
-        linha += 1
-
-    ws.cell(linha, 5, 'Total').font = negrito
-    cel_total = ws.cell(linha, 6, _total(bloco, linhas_pag))
-    cel_total.number_format = 'R$ #,##0.00'
-    cel_total.font = negrito
+        _linha_total('Arredondamento:', ajuste)
+    _linha_total('Total:', total, bold=True)
 
     larguras = [12, 26, 44, 16, 6, 14]
     for i, w in enumerate(larguras, start=1):
@@ -171,9 +180,6 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
                                textColor=colors.HexColor('#0B5FA5'))
     st_sub = ParagraphStyle('s', parent=estilos['Normal'], fontSize=9, textColor=colors.HexColor('#52606d'))
     st_info = ParagraphStyle('i', parent=estilos['Normal'], fontSize=10, spaceAfter=2)
-    st_lembrete = ParagraphStyle('l', parent=estilos['Normal'], fontSize=10,
-                                 textColor=colors.HexColor('#946200'), backColor=colors.HexColor('#FFF7E6'),
-                                 borderPadding=6, spaceBefore=6, spaceAfter=6)
     st_cel = ParagraphStyle('c', parent=estilos['Normal'], fontSize=8.5, leading=11)
 
     elems = [
@@ -186,44 +192,49 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
         elems.append(Paragraph(f'<b>Razão Social:</b> {bloco.razao_social}', st_info))
     if data_ref:
         elems.append(Paragraph(f'<b>Data do atendimento:</b> {data_ref.strftime("%d/%m/%Y")}', st_info))
-    if getattr(bloco, 'lembrete', ''):
-        elems.append(Paragraph(f'📌 {bloco.lembrete}', st_lembrete))
+    # SEM aviso de preceptoria aqui — esse fica só na revisão. (Diretoria 2026-06-24.)
     elems.append(Spacer(1, 8))
 
-    linhas_pag = pagaveis(bloco)
-    dados = [['Data', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário']]
-    for p in linhas_pag:
-        dados.append([
-            p.data_texto,
-            Paragraph(p.procedimento, st_cel),
-            p.convenio,
-            str(p.quantidade),
-            moeda(p.honorario),
-        ])
-    ajuste = _ajuste_arredondamento(bloco, linhas_pag)
+    cab, linhas_dados, ajuste, total, n_pag = _linhas_repasse(bloco)
+    # Mesmas colunas do Excel (inclui Paciente) — documentos idênticos.
+    dados = [cab]
+    for d in linhas_dados:
+        dados.append([d[0], Paragraph(d[1] or '', st_cel), Paragraph(d[2], st_cel),
+                      d[3], str(d[4]), moeda(d[5])])
+    # Total (e arredondamento): "Total:" na 1ª coluna, valor a seguir (mesclado),
+    # alinhado à esquerda — igual ao Excel.
+    n_extra = 0
     if ajuste:
-        dados.append(['', '', '', 'Arredondamento', moeda(ajuste)])
-    dados.append(['', '', '', 'Total', moeda(_total(bloco, linhas_pag))])
+        dados.append(['Arredondamento:', moeda(ajuste), '', '', '', '']); n_extra += 1
+    dados.append(['Total:', moeda(total), '', '', '', '']); n_extra += 1
 
-    tabela = Table(dados, colWidths=[22 * mm, 78 * mm, 30 * mm, 12 * mm, 28 * mm], repeatRows=1)
-    tabela.setStyle(TableStyle([
+    tabela = Table(dados, colWidths=[20 * mm, 38 * mm, 54 * mm, 26 * mm, 12 * mm, 26 * mm], repeatRows=1)
+    estilo_tab = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0B5FA5')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 8.5),
-        ('ALIGN', (3, 0), (4, -1), 'RIGHT'),
+        ('ALIGN', (4, 0), (5, -1), 'RIGHT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F7F9FC')]),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1 - n_extra), [colors.white, colors.HexColor('#F7F9FC')]),
         ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#E2E8F0')),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#EEF2F7')),
-        ('FONTNAME', (3, -1), (4, -1), 'Helvetica-Bold'),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-    ]))
+    ]
+    # Linhas de total/arredondamento: valor mesclado (col 1+2), à esquerda, destacado.
+    for i in range(n_extra):
+        r = len(dados) - n_extra + i
+        estilo_tab += [
+            ('SPAN', (1, r), (2, r)),
+            ('ALIGN', (1, r), (2, r), 'LEFT'),
+            ('BACKGROUND', (0, r), (-1, r), colors.HexColor('#EEF2F7')),
+        ]
+    estilo_tab.append(('FONTNAME', (0, len(dados) - 1), (1, len(dados) - 1), 'Helvetica-Bold'))  # "Total:"
+    tabela.setStyle(TableStyle(estilo_tab))
     elems.append(tabela)
     elems.append(Spacer(1, 10))
     elems.append(Paragraph(
-        f'Total de {len(linhas_pag)} procedimento(s) com repasse. '
+        f'Total de {n_pag} procedimento(s) com repasse. '
         'Documento para conferência do profissional.', st_sub))
 
     doc.build(elems)
@@ -266,9 +277,12 @@ def gerar_excel_anestesista(entry, unidade: str) -> bytes:
         ws.cell(linha, 4, p.quantidade)
         linha += 1
 
-    ws.cell(linha, 3, 'Total').font = negrito
-    cel_total = ws.cell(linha, 4, round(float(entry.get('valor') or 0), 2))
+    cel_rot = ws.cell(linha, 1, 'Total:')
+    cel_rot.font = negrito
+    ws.merge_cells(start_row=linha, start_column=2, end_row=linha, end_column=3)
+    cel_total = ws.cell(linha, 2, round(float(entry.get('valor') or 0), 2))
     cel_total.number_format = 'R$ #,##0.00'
+    cel_total.alignment = Alignment(horizontal='left')
     cel_total.font = negrito
 
     for i, w in enumerate([12, 50, 18, 8], start=1):

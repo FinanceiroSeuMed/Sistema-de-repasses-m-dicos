@@ -44,7 +44,10 @@
 {% endif %}
 
 <section class="saidas">
-    <h2>📦 Arquivos gerados</h2>
+    <div class="bloco-cabecalho">
+        <h2>📦 Arquivos gerados</h2>
+        {% if tem_no_banco %}<a class="botao botao-download" href="{% url 'repasses:baixar_lote_zip' lote.id %}">🗜 Baixar tudo (.zip)</a>{% endif %}
+    </div>
     {% regroup downloads by grupo as grupos %}
     {% for g in grupos %}
     <div class="saida-grupo">

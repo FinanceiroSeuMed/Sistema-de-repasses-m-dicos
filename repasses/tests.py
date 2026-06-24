@@ -158,6 +158,44 @@ class RepasseDocTests(SimpleTestCase):
         self.assertEqual(round(soma_exibida + repasse._ajuste_arredondamento(self.bloco), 2), total)
 
 
+@unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
+class RepasseLayoutTests(SimpleTestCase):
+    """Excel e PDF do médico: mesmas colunas (com Paciente), célula de Total e SEM
+    aviso de preceptoria nas exportações."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from openpyxl import load_workbook
+        from pypdf import PdfReader
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        regras.processar(rel, livro)
+        cls.bloco = next(b for b in rel.blocos if 'heric' in b.profissional.lower())
+        cls.bloco.lembrete = 'Repasse de preceptoria a lançar à parte: teste'  # não pode vazar p/ export
+        cls.wb = load_workbook(io.BytesIO(repasse.gerar_excel(cls.bloco, 'Maringá')))
+        cls.ws = cls.wb.active
+        cls.pdf_txt = '\n'.join((p.extract_text() or '')
+                                for p in PdfReader(io.BytesIO(repasse.gerar_pdf(cls.bloco, 'Maringá'))).pages)
+
+    def _linha_cab(self):
+        return next(r for r in range(1, 15) if self.ws.cell(r, 1).value == 'Data')
+
+    def test_excel_colunas_e_total(self):
+        cr = self._linha_cab()
+        self.assertEqual([self.ws.cell(cr, c).value for c in range(1, 7)],
+                         ['Data', 'Paciente', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário'])
+        tot = next(r for r in range(cr, self.ws.max_row + 1) if self.ws.cell(r, 1).value == 'Total:')
+        self.assertTrue(any(str(m).startswith(f'B{tot}') for m in self.ws.merged_cells.ranges))  # B:C mesclado
+        pac = next(p.paciente for p in repasse.pagaveis(self.bloco) if p.paciente)
+        self.assertEqual(self.ws.cell(cr + 1, 2).value, pac)   # 1ª linha traz o paciente
+
+    def test_pdf_igual_ao_excel(self):
+        self.assertIn('Paciente', self.pdf_txt)        # mesma coluna do Excel
+        self.assertIn('Total:', self.pdf_txt)
+        self.assertNotIn('preceptoria a lançar', self.pdf_txt.lower())  # aviso só na preview
+
+
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, FFILIAIS), 'amostra de filiais ausente')
 class OmiePagarTests(SimpleTestCase):
     """Estrutura do contas a pagar (sem linha de categoria vazia)."""
@@ -201,6 +239,17 @@ class OmieReceberTests(SimpleTestCase):
         self.assertEqual(omie.grupo_receber('Cisamusep'), 'CISAMUSEP')
         self.assertEqual(omie.grupo_receber('Particular'), 'PARTICULARES')
         self.assertEqual(omie.grupo_receber('Parcerias I'), 'PARTICULARES')
+
+    def test_departamento_codigo(self):
+        # Mesma chave (código 01–07) no a pagar e no a receber; PR2 e PR3 = 07.
+        self.assertEqual(omie.departamento_cod('Maringá - Matriz'), '01')
+        self.assertEqual(omie.departamento_cod('Mandaguaçu'), '02')
+        self.assertEqual(omie.departamento_cod('Paiçandu'), '03')
+        self.assertEqual(omie.departamento_cod('Sarandi'), '04')
+        self.assertEqual(omie.departamento_cod('Maringá - Av Brasil'), '05')
+        self.assertEqual(omie.departamento_cod('Mandaguari'), '06')
+        self.assertEqual(omie.departamento_cod('Maringá - Filial PR2 e PR3'), '07')
+        self.assertIsNone(omie.departamento_cod('Outra'))
 
     @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
     def test_receber_22_06_estrutura(self):
@@ -351,3 +400,20 @@ class LoteHistoricoTests(TestCase):
         r = self.client.post(f'/lotes/{lote.id}/excluir/', follow=True)
         self.assertFalse(Lote.objects.filter(id=lote.id).exists())
         self.assertFalse(Repasse.objects.filter(lote_id=lote.id).exists())
+
+    def test_baixar_tudo_zip(self):
+        import zipfile
+        from repasses.models import ArquivoSaida
+        lote = self._cria_lote()
+        ArquivoSaida.objects.create(lote=lote, grupo='Importação OMIE',
+                                    nome='OMIE_Contas_a_Pagar.xlsx', conteudo=b'PK-fake-1')
+        ArquivoSaida.objects.create(lote=lote, grupo='Repasses por médico',
+                                    nome='Dr. Heric 22-06.pdf', conteudo=b'PDF-fake-2')
+        r = self.client.get(f'/lotes/{lote.id}/baixar-zip/')
+        self.assertEqual(r.status_code, 200)
+        conteudo = b''.join(r.streaming_content)
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
+            nomes = zf.namelist()
+        self.assertEqual(len(nomes), 2)
+        self.assertTrue(any('Contas_a_Pagar' in n for n in nomes))
+        self.assertTrue(any(n.endswith('.pdf') for n in nomes))

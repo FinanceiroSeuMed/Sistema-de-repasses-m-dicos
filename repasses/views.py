@@ -665,7 +665,7 @@ def visualizar(request):
 
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,
-                 info=None, edicoes=None, avisos=None):
+                 info=None, edicoes=None, avisos=None, lote_id=None):
     cirurgias = [(b.profissional, p) for b in resultado.blocos for p in b.procedimentos
                  if p.classe == medplus.CLASSE_CIRURGIA and p.status_calculo != 'componente']
     return {
@@ -678,6 +678,7 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'edicoes': edicoes or {},
         'downloads': downloads or [],
         'pasta_saida': pasta_saida,
+        'lote_id': lote_id,
         'qtd_cirurgias': len(cirurgias),
         'classes': medplus.CLASSES,
         'fellows': list(Medico.objects.filter(eh_fellow=True)),
@@ -707,8 +708,10 @@ def exportar(request):
     _guardar_arquivos_no_banco(token, arquivos)        # re-download não depende da pasta saídas/
     _guardar_upload_no_banco(token)                    # re-export sobrevive à limpeza de uploads/
     pendencias = _resumir_pendencias(pend)
+    lote = Lote.objects.filter(token=token).only('id').first()
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
-                       info=info, edicoes=dados, avisos=avisos_dup)
+                       info=info, edicoes=dados, avisos=avisos_dup,
+                       lote_id=lote.id if lote else None)
     return render(request, 'repasses/revisao.html', ctx)
 
 
@@ -811,6 +814,32 @@ def baixar_lote(request, pk, nome):
     if arq is None:
         raise Http404('Arquivo não encontrado.')
     return FileResponse(io.BytesIO(bytes(arq.conteudo)), as_attachment=True, filename=nome)
+
+
+def baixar_lote_zip(request, pk):
+    """Baixa TODOS os arquivos do lote de uma vez, num único .zip — para validar sem
+    baixar arquivo por arquivo. Servido do BANCO (ArquivoSaida)."""
+    import zipfile
+    lote = get_object_or_404(Lote, pk=pk)
+    arquivos = list(lote.arquivos.all())
+    if not arquivos:
+        raise Http404('Este lote não tem arquivos guardados para baixar.')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        usados = {}
+        for a in arquivos:
+            # agrupa por subpasta (Importação OMIE / Repasses por médico) e evita
+            # nomes repetidos no zip.
+            pasta = (a.grupo or '').strip().replace('/', '-') or 'Arquivos'
+            nome = f'{pasta}/{a.nome}'
+            usados[nome] = usados.get(nome, 0) + 1
+            if usados[nome] > 1:
+                base, _, ext = a.nome.rpartition('.')
+                nome = f'{pasta}/{base} ({usados[nome]}).{ext}' if ext else f'{pasta}/{a.nome} ({usados[nome]})'
+            zf.writestr(nome, bytes(a.conteudo))
+    buf.seek(0)
+    rotulo = re.sub(r'[^\w.-]+', '_', (lote.arquivo_nome or f'lote_{pk}')).strip('_') or f'lote_{pk}'
+    return FileResponse(buf, as_attachment=True, filename=f'repasses_{rotulo}.zip')
 
 
 # --- Histórico de lotes + auditoria -------------------------------------------
@@ -970,6 +999,7 @@ def lote_detalhe(request, pk):
         'lote': lote,
         'downloads': downloads,
         'algum_sumiu': algum_sumiu,
+        'tem_no_banco': bool(db_arqs),   # zip "baixar tudo" sai do banco
         'repasses': list(lote.repasses.all()),
         'status_choices': Repasse.STATUS_CHOICES,
     })

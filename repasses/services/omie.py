@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
 from collections import defaultdict
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import date
 
 from openpyxl import load_workbook
-
-import unicodedata
 
 from . import medplus, regras
 
@@ -60,6 +60,18 @@ FILIAL_CNPJ = {
     'maringa - filial pr2 e pr3':  '27.717.567/0007-25',
 }
 
+# Código do Departamento na OMIE (mesma chave no a pagar e no a receber). PR2 e PR3
+# compartilham o código 07 (mesma filial/CNPJ .../0007-25). (Diretoria 2026-06-24.)
+DEPARTAMENTO_COD = {
+    'maringa - matriz':            '01',
+    'mandaguacu':                  '02',
+    'paicandu':                    '03',
+    'sarandi':                     '04',
+    'maringa - av brasil':         '05',
+    'mandaguari':                  '06',
+    'maringa - filial pr2 e pr3':  '07',
+}
+
 # Categoria do a receber por grupo de convênio (diretoria: SUS / CISAMUSEP / PARTICULARES).
 GRUPO_RECEBER = {
     'sus': 'SUS',
@@ -84,6 +96,11 @@ def cnpj_filial(clinica: str) -> str | None:
 def grupo_receber(convenio: str) -> str:
     """Grupo de categoria do a receber (SUS / CISAMUSEP / PARTICULARES)."""
     return GRUPO_RECEBER.get(regras.mapear_convenio(convenio), GRUPO_RECEBER_FALLBACK)
+
+
+def departamento_cod(clinica: str) -> str | None:
+    """Código do Departamento OMIE (01–07) para a clínica (None se não mapeada)."""
+    return DEPARTAMENTO_COD.get(_norm_clinica(clinica))
 
 # Colunas (1-indexadas) no layout das planilhas OMIE; dados começam na linha 6.
 LINHA_INICIAL = 6
@@ -142,8 +159,16 @@ def _escrever(modelo_path, linhas: list[dict], col_departamento: int) -> tuple[b
     """
     wb = load_workbook(modelo_path)
     ws = wb[wb.sheetnames[0]]
+    cols = (COL_NOME, COL_CATEGORIA, COL_CONTA, COL_VALOR, COL_REGISTRO,
+            COL_VENCIMENTO, COL_OBSERVACOES, col_departamento)
+    # Estilo da 1ª linha de dados do template — replicado em TODAS as linhas. Sem
+    # isso, o modelo a pagar (que só traz ~3 linhas pré-formatadas) perde a
+    # formatação a partir da 4ª linha; o a receber traz milhares e não sofria.
+    estilo = {c: copy(ws.cell(row=LINHA_INICIAL, column=c)._style) for c in cols}
     r = LINHA_INICIAL
     for ln in linhas:
+        for c in cols:
+            ws.cell(row=r, column=c)._style = copy(estilo[c])
         ws.cell(row=r, column=COL_NOME, value=ln['nome'])
         ws.cell(row=r, column=COL_CATEGORIA, value=ln['categoria'])
         ws.cell(row=r, column=COL_CONTA, value=CONTA_CORRENTE)
@@ -204,8 +229,8 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
                                   f'(Cirurgia/Exame/Preceptoria) na revisão; NÃO entrou no a pagar.')
                 continue
             linhas.append({'nome': nome_forn, 'categoria': categoria, 'valor': soma,
-                           'registro': dia, 'vencimento': venc,
-                           'observacao': observacao, 'departamento': bloco.clinica})
+                           'registro': dia, 'vencimento': venc, 'observacao': observacao,
+                           'departamento': departamento_cod(bloco.clinica) or bloco.clinica})
 
     # Linhas dos anestesistas (categoria própria) — uma por atendimento/dia
     for a in getattr(resultado, 'anestesistas', []):
@@ -215,7 +240,7 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
                        'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
                        'registro': dia, 'vencimento': venc_dia10_mes_seguinte(dia),
                        'observacao': f'Repasse {dia.strftime("%d/%m")} {anest}',
-                       'departamento': a.get('clinica', '')})
+                       'departamento': departamento_cod(a.get('clinica', '')) or a.get('clinica', '')})
 
     linhas.sort(key=lambda x: (str(x['registro']), x['departamento'] or '', x['nome'], x['categoria']))
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_PAGAR)
@@ -267,6 +292,6 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
         linhas.append({'nome': cnpj_filial(clinica) or CLIENTE_RECEBER, 'categoria': grupo,
                        'valor': soma, 'registro': d, 'vencimento': venc_dia10_mes_seguinte(d),
                        'observacao': f'Recebimento {d.strftime("%d/%m")}{rotulo} — {grupo}',
-                       'departamento': clinica})
+                       'departamento': departamento_cod(clinica) or clinica})
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_RECEBER)
     return ResultadoSaida('OMIE_Contas_a_Receber.xlsx', conteudo, n, pendencias)
