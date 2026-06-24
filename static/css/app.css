@@ -186,6 +186,32 @@ body {
 /* Honorário só-leitura (linhas sintéticas: preceptoria / participação do fellow) */
 .hon-fixo { font-weight: 600; color: var(--azul); }
 
+/* Selo "memorizar p/ N médicos" ao lado do checkbox de memorizar */
+.memo-resumo { display: block; font-size: 11px; color: var(--verde); font-weight: 600; }
+
+/* Médicos novos a classificar (auto-cadastro) */
+.medicos-novos { background: #fff7e6; border: 1px solid #ffe1a8; border-radius: 12px;
+    padding: 16px 20px; margin: 18px 0; }
+.medicos-novos h3 { margin: 0 0 6px; color: #946200; }
+.papeis-novo { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; white-space: nowrap; }
+.papeis-novo label { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Modal (seleção de médicos para a correção memorizada) */
+.modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .5); display: flex;
+    align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal-overlay[hidden] { display: none; }
+.modal-box { background: var(--branco); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.25);
+    width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 22px 24px; }
+.modal-box h3 { margin: 0 0 6px; }
+.memo-todos { display: inline-block; margin: 8px 0 10px; padding: 6px 10px; background: #eef2f7;
+    border-radius: 8px; cursor: pointer; }
+.memo-lista { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px;
+    border: 1px solid var(--cinza-borda); border-radius: 10px; padding: 12px; max-height: 46vh; overflow: auto; }
+.memo-item { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+.memo-item.dono { color: var(--azul); font-weight: 600; }
+.modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+@media (max-width: 560px) { .memo-lista { grid-template-columns: 1fr; } }
+
 .resumo-importacao { margin: 24px 0 8px; }
 .resumo-linha { display: flex; gap: 32px; flex-wrap: wrap; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; padding: 16px 24px; box-shadow: var(--sombra); }
 .resumo-rotulo { display: block; font-size: 12px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .4px; }

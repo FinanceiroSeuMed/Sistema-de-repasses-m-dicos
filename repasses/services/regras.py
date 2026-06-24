@@ -621,6 +621,9 @@ def processar(resultado, livro: LivroRegras):
     """Preenche honorário/status de cada procedimento e os lembretes por médico."""
     for bloco in resultado.blocos:
         medico = livro.medico_por_nome(bloco.profissional)
+        # Nome canônico do cadastro (chave estável p/ correção por-médico e p/ o
+        # seletor de memorizar destacar o dono mesmo com nome do MedPlus diferente).
+        bloco.medico_cadastro = medico.nome if medico else bloco.profissional
         if medico:
             bloco.razao_social = medico.razao_social
             if 'preceptor' in medico.categoria.lower() and medico.obs:

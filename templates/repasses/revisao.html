@@ -26,6 +26,46 @@
 
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
+{% if medicos_novos %}
+<section class="medicos-novos">
+    <h3>🆕 {{ medicos_novos|length }} médico(s) novo(s) — classifique antes de exportar</h3>
+    <p class="nota">Estes profissionais ainda não estão no cadastro. Escolha a <strong>categoria</strong>
+        de cada um (o sistema nunca assume) e ajuste os campos se necessário. ⚠️ Cadastre <strong>antes</strong>
+        de editar/Salvar os valores abaixo — este formulário recarrega a revisão.</p>
+    <form method="post" action="{% url 'repasses:cadastrar_medicos' %}">
+        {% csrf_token %}
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="novo_count" value="{{ medicos_novos|length }}">
+        <table class="tabela">
+            <thead>
+                <tr><th>Nome</th><th>Categoria *</th><th>Razão Social</th><th>Regra / observação</th><th>Papéis extras</th></tr>
+            </thead>
+            <tbody>
+                {% for nome in medicos_novos %}
+                <tr>
+                    <td><input type="text" class="inp-hon" name="novo_nome_{{ forloop.counter0 }}" value="{{ nome }}" style="width:100%"></td>
+                    <td>
+                        <select class="inp-classe" name="novo_categoria_{{ forloop.counter0 }}" required>
+                            <option value="">— escolha —</option>
+                            {% for val, rotulo in categorias_medico %}<option value="{{ val }}">{{ rotulo }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="text" class="inp-hon" name="novo_razao_{{ forloop.counter0 }}" placeholder="(Fornecedor na OMIE)" style="width:100%"></td>
+                    <td><input type="text" class="inp-hon" name="novo_regra_{{ forloop.counter0 }}" placeholder="ex.: R$ 800/semana; não recebe em catarata" style="width:100%"></td>
+                    <td class="papeis-novo">
+                        <label><input type="checkbox" name="novo_papeis_{{ forloop.counter0 }}" value="fellow"> fellow</label>
+                        <label><input type="checkbox" name="novo_papeis_{{ forloop.counter0 }}" value="preceptor"> preceptor</label>
+                        <label><input type="checkbox" name="novo_papeis_{{ forloop.counter0 }}" value="anestesista"> anestesista</label>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p style="margin-top:12px"><button type="submit" class="botao botao-download">💾 Cadastrar e reprocessar</button></p>
+    </form>
+</section>
+{% endif %}
+
 <section class="resumo-importacao">
     <div class="resumo-linha">
         <div><span class="resumo-rotulo">Unidade</span><span class="resumo-valor">{{ resultado.unidade }}</span></div>
@@ -153,9 +193,13 @@
                                placeholder="{% if p.status_calculo == 'taxa_sala' %}opcional{% else %}—{% endif %}"
                                data-exato="{{ p.honorario|valor_exato }}"
                                title="{{ p.motivo_calculo }}">
-                        <label class="memo" title="Salvar este valor para '{{ p.procedimento }}' / {{ p.convenio|default:'qualquer convênio' }} e reaplicar nos próximos meses">
-                            <input type="checkbox" name="memorizar_{{ p.idx }}" value="1"> memorizar
+                        <label class="memo" title="Salvar este valor para '{{ p.procedimento }}' e reaplicar nos próximos meses (você escolhe para quais médicos)">
+                            <input type="checkbox" class="chk-memo" name="memorizar_{{ p.idx }}" value="1"
+                                   data-idx="{{ p.idx }}" data-medico="{{ bloco.medico_cadastro|default:bloco.profissional }}"
+                                   data-proc="{{ p.procedimento }}"> memorizar
                         </label>
+                        <span class="memo-hidden" data-idx="{{ p.idx }}"></span>
+                        <span class="memo-resumo" data-idx="{{ p.idx }}"></span>
                         {% endif %}
                     </td>
                     <td><span class="badge badge-{{ p.status_calculo|slug_status }}">{{ p.status_calculo|rotulo_status }}</span>{% if 'memorizada' in p.motivo_calculo %} <span class="badge badge-memo" title="{{ p.motivo_calculo }}">memorizado</span>{% endif %}</td>
@@ -223,6 +267,97 @@
     </section>
     {% endfor %}
 </form>
+
+{# Modal: para quais médicos a correção memorizada deve valer #}
+<div id="memo-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+        <h3>Memorizar correção — para quais médicos?</h3>
+        <p class="nota" id="memo-modal-proc">—</p>
+        <p class="nota">A alteração vale <strong>sempre</strong> para o médico desta linha. Marque abaixo
+            quem <strong>mais</strong> deve receber a mesma alteração (deixe só o dono se for exclusivo dele).</p>
+        <label class="memo-todos"><input type="checkbox" id="memo-todos"> <strong>Marcar todos</strong></label>
+        <div class="memo-lista">
+            {% for nome in medicos_memo %}
+            <label class="memo-item"><input type="checkbox" class="memo-med" value="{{ nome }}"> {{ nome }}</label>
+            {% empty %}
+            <p class="nota">Nenhum médico cadastrado ainda.</p>
+            {% endfor %}
+        </div>
+        <div class="modal-acoes">
+            <button type="button" class="botao botao-secundario-escuro" id="memo-cancelar">Cancelar</button>
+            <button type="button" class="botao botao-download" id="memo-confirmar">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Seletor de médicos para a correção memorizada (modal por linha)
+(function () {
+    var modal = document.getElementById('memo-modal');
+    if (!modal) return;
+    var lista = modal.querySelector('.memo-lista');
+    var chkTodos = document.getElementById('memo-todos');
+    var procEl = document.getElementById('memo-modal-proc');
+    var atual = null;
+    function meds() { return Array.prototype.slice.call(lista.querySelectorAll('.memo-med')); }
+    function holderDe(idx) { return document.querySelector('.memo-hidden[data-idx="' + idx + '"]'); }
+    function resumoDe(idx) { return document.querySelector('.memo-resumo[data-idx="' + idx + '"]'); }
+    function sincTodos() {
+        var ms = meds();
+        chkTodos.checked = ms.length > 0 && ms.every(function (m) { return m.checked; });
+    }
+    function abrir(chk) {
+        atual = chk;
+        var dono = chk.dataset.medico || '';
+        procEl.textContent = (chk.dataset.proc || '') + '  ·  médico da linha: ' + dono;
+        var jaSel = {};
+        holderDe(chk.dataset.idx).querySelectorAll('input').forEach(function (h) { jaSel[h.value] = true; });
+        meds().forEach(function (m) {
+            var ehDono = (m.value === dono);
+            m.checked = ehDono || !!jaSel[m.value];
+            m.disabled = ehDono;   // o médico da linha é sempre incluído
+            m.parentElement.classList.toggle('dono', ehDono);
+        });
+        sincTodos();
+        modal.hidden = false;
+    }
+    function fechar() { modal.hidden = true; atual = null; }
+    function confirmar() {
+        if (!atual) return fechar();
+        var holder = holderDe(atual.dataset.idx);
+        holder.innerHTML = '';
+        var nomes = [];
+        meds().forEach(function (m) {
+            if (m.checked || m.disabled) {     // disabled = dono (sempre)
+                var inp = document.createElement('input');
+                inp.type = 'hidden'; inp.name = 'memo_medicos_' + atual.dataset.idx; inp.value = m.value;
+                holder.appendChild(inp);
+                nomes.push(m.value);
+            }
+        });
+        resumoDe(atual.dataset.idx).textContent = nomes.length > 1 ? ('✓ ' + nomes.length + ' médicos') : '✓ só este médico';
+        fechar();
+    }
+    chkTodos.addEventListener('change', function () {
+        meds().forEach(function (m) { if (!m.disabled) m.checked = chkTodos.checked; });
+    });
+    lista.addEventListener('change', sincTodos);
+    function cancelar() {
+        // fechar sem confirmar: se nada foi gravado, desmarca o "memorizar" (estado consistente)
+        if (atual && !holderDe(atual.dataset.idx).children.length) { atual.checked = false; }
+        fechar();
+    }
+    document.getElementById('memo-confirmar').addEventListener('click', confirmar);
+    document.getElementById('memo-cancelar').addEventListener('click', cancelar);
+    modal.addEventListener('click', function (e) { if (e.target === modal) cancelar(); });
+    document.querySelectorAll('.chk-memo').forEach(function (chk) {
+        chk.addEventListener('change', function () {
+            if (chk.checked) { abrir(chk); }
+            else { holderDe(chk.dataset.idx).innerHTML = ''; resumoDe(chk.dataset.idx).textContent = ''; }
+        });
+    });
+})();
+</script>
 
 <script>
 // Sincroniza o total exibido com os valores realmente usados (mesmos campos)

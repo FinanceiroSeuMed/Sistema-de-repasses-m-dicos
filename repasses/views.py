@@ -219,7 +219,8 @@ def _ler_e_processar(caminho, nome=''):
         # OCI feito por residente -> o repasse é do Dr. Alessander (residente não recebe)
         _oci_residentes(resultado, livro)
         # Correções memorizadas: reaplicam ajustes manuais salvos em meses anteriores
-        correcoes.aplicar(resultado)
+        # (livro resolve o médico pelo cadastro p/ a correção por-médico casar)
+        correcoes.aplicar(resultado, livro)
         # Residentes não recebem -> não aparecem no preview nem na exportação
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
@@ -228,7 +229,27 @@ def _ler_e_processar(caminho, nome=''):
         _marcar_taxas_sala(resultado)
     _limpar_linhas(resultado)
     _indexar(resultado)
+    resultado.medicos_novos = _medicos_desconhecidos(resultado, livro)
     return resultado, aviso
+
+
+def _medicos_desconhecidos(resultado, livro):
+    """Nomes de médicos do import que NÃO estão no cadastro — precisam ser
+    classificados pelo usuário (o sistema nunca assume a categoria)."""
+    if livro is None:
+        return []
+    vistos, novos = set(), []
+    for bloco in resultado.blocos:
+        if getattr(bloco, 'participacao', False):     # bloco sintético (fellow) — ignora
+            continue
+        if livro.medico_por_nome(bloco.profissional) is not None:
+            continue
+        nome = _nome_base_medico(bloco.profissional)
+        chave = regras.normalizar(nome)
+        if chave and chave not in vistos:
+            vistos.add(chave)
+            novos.append(nome)
+    return novos
 
 
 def _separar_por_dia(resultado):
@@ -603,6 +624,47 @@ def salvar(request):
                   _ctx_revisao(resultado, token, aviso, info=info, edicoes=dados))
 
 
+def cadastrar_medicos(request):
+    """Cadastra os médicos novos (sem cadastro) classificados pelo usuário na revisão.
+
+    O sistema NUNCA assume a categoria: só cadastra quem teve uma categoria escolhida.
+    Campos editáveis (razão social, regra) para casos extraordinários. Depois recarrega
+    a revisão — já reprocessada com os médicos cadastrados."""
+    if request.method != 'POST':
+        raise Http404()
+    token = request.POST.get('token', '')
+    if _caminho_upload(token) is None:
+        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+    validos = dict(Medico.CATEGORIA_CHOICES)
+    criados, sem_classe = 0, 0
+    for i in range(int(request.POST.get('novo_count') or 0)):
+        nome = (request.POST.get(f'novo_nome_{i}') or '').strip()
+        categoria = (request.POST.get(f'novo_categoria_{i}') or '').strip()
+        if not nome:
+            continue
+        if categoria not in validos:        # sem classificação -> NÃO cadastra (não assume)
+            sem_classe += 1
+            continue
+        if Medico.objects.filter(nome__iexact=nome).exists():
+            continue
+        papeis = request.POST.getlist(f'novo_papeis_{i}')
+        Medico.objects.create(
+            nome=nome, categoria=categoria,
+            razao_social=(request.POST.get(f'novo_razao_{i}') or '').strip(),
+            regra_obs=(request.POST.get(f'novo_regra_{i}') or '').strip(),
+            eh_fellow=(categoria == Medico.CATEGORIA_FELLOW) or ('fellow' in papeis),
+            eh_preceptor=(categoria == Medico.CATEGORIA_PRECEPTOR) or ('preceptor' in papeis),
+            eh_anestesista=(categoria == Medico.CATEGORIA_ANESTESISTA) or ('anestesista' in papeis))
+        criados += 1
+    if criados:
+        messages.success(request, f'{criados} médico(s) cadastrado(s) — repasse reprocessado com eles.')
+    if sem_classe:
+        messages.error(request, f'{sem_classe} médico(s) sem categoria escolhida não foram cadastrados '
+                       '— escolha a classificação (o sistema não assume).')
+    resultado, aviso, dados = _preparar_revisao(token)
+    return render(request, 'repasses/revisao.html', _ctx_revisao(resultado, token, aviso, edicoes=dados))
+
+
 def revisar(request):
     """Volta para a tela de revisão (edição) sem salvar nem gerar nada —
     usado pelo botão 'Voltar à revisão' da tela de visualização."""
@@ -681,6 +743,12 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'lote_id': lote_id,
         'qtd_cirurgias': len(cirurgias),
         'classes': medplus.CLASSES,
+        # Médicos novos (sem cadastro) a classificar + as categorias disponíveis.
+        'medicos_novos': getattr(resultado, 'medicos_novos', []),
+        'categorias_medico': Medico.CATEGORIA_CHOICES,
+        # Médicos (menos residentes) p/ o seletor de "memorizar para quais médicos".
+        'medicos_memo': list(Medico.objects.exclude(categoria=Medico.CATEGORIA_RESIDENTE)
+                             .order_by('nome').values_list('nome', flat=True)),
         'fellows': list(Medico.objects.filter(eh_fellow=True)),
         'anestesistas': [m for m in Medico.objects.filter(eh_anestesista=True)
                          if not _anestesista_fora_omie(m.nome)],
@@ -718,26 +786,37 @@ def exportar(request):
 def _memorizar_correcoes(resultado, post):
     """Salva como correção memorizada cada linha marcada 'memorizar' na revisão.
 
-    Fica valendo para qualquer médico (a regra é por procedimento/convênio); a
-    origem registra de qual médico/lote veio. Devolve mensagens informativas."""
+    A correção é POR MÉDICO: vale só para o médico do bloco e para os que o usuário
+    marcou no seletor (modal). Assim mudar o valor de um procedimento do Dr. Rodolpho
+    NÃO altera o mesmo procedimento da Dra. Tharcila — a menos que ela seja marcada.
+    Devolve mensagens informativas."""
     salvos = 0
     for bloco in resultado.blocos:
+        # Nome CANÔNICO do médico do bloco (do cadastro, resolvido em processar) —
+        # mesma chave que o aplicar() usa, para a correção casar nos próximos meses
+        # mesmo com o nome do MedPlus diferente (sufixo/abreviação). Ver correcoes.medico_norm.
+        dono = getattr(bloco, 'medico_cadastro', '') or bloco.profissional
         for p in bloco.procedimentos:
             if post.get(f'memorizar_{p.idx}') != '1':
                 continue
             if p.honorario is None or p.honorario <= 0:
                 continue
-            correcoes.memorizar(
-                p.procedimento, p.convenio, round(float(p.honorario), 2),
-                classe=p.classe,
-                origem=(resultado.unidade or '')[:180],
-                observacao=f'{bloco.profissional} {p.data_texto}'.strip())
+            # médicos que recebem a correção: o do bloco + os marcados no modal (nomes do cadastro).
+            destinos = [d.strip() for d in post.getlist(f'memo_medicos_{p.idx}') if d.strip()]
+            if dono not in destinos:
+                destinos.insert(0, dono)
+            for medico in dict.fromkeys(destinos):   # dedup, preserva ordem
+                correcoes.memorizar(
+                    p.procedimento, p.convenio, round(float(p.honorario), 2),
+                    medico=medico, classe=p.classe,
+                    origem=(resultado.unidade or '')[:180],
+                    observacao=f'{bloco.profissional} {p.data_texto}'.strip())
             salvos += 1
     if not salvos:
         return []
     plural = 'correção memorizada' if salvos == 1 else 'correções memorizadas'
-    return [f'✓ {salvos} {plural} — serão reaplicadas automaticamente nos próximos meses. '
-            'Veja em "Correções memorizadas".']
+    return [f'✓ {salvos} {plural} (por médico) — serão reaplicadas automaticamente nos '
+            'próximos meses. Veja em "Correções memorizadas".']
 
 
 def _gerar_arquivos_por_dia(resultado):

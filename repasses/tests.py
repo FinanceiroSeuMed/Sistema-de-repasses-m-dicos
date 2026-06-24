@@ -331,9 +331,71 @@ class ParserUnitTests(SimpleTestCase):
                          medplus.SUBCLASSE_TAXA)
 
 
+@unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
+class CorrecaoPorMedicoTests(TestCase):
+    """Correção memorizada por médico: vale só p/ o médico salvo (e os marcados)."""
+
+    def test_isolada_por_medico(self):
+        from repasses.services import correcoes
+        from repasses import views
+        correcoes.memorizar('Consulta em Oftalmologia', 'Particular', 999.0,
+                            medico='Dr. Heric Sakamoto')
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel)
+        regras.processar(rel, livro)
+        correcoes.aplicar(rel)
+
+        def consultas_particular(frag):
+            return [p.honorario for b in rel.blocos if frag in b.profissional.lower()
+                    for p in b.procedimentos
+                    if p.procedimento.strip().lower() == 'consulta em oftalmologia'
+                    and (p.convenio or '').strip().lower() == 'particular']
+        her = consultas_particular('heric')
+        rob = consultas_particular('roberta')
+        self.assertTrue(her and all(abs(h - 999.0) < 0.01 for h in her))   # Heric: todas 999
+        self.assertTrue(rob and all(abs(h - 999.0) > 0.01 for h in rob))   # Roberta: nenhuma 999
+
+    def test_casa_por_cadastro_mesmo_nome_diferente(self):
+        # Bug pego na revisão: o modal lista o nome do CADASTRO (ex.: "Dra. Tharcila"),
+        # que difere do nome do MedPlus ("Dra. Tharcila Breginski da Rocha"). Sem
+        # resolver pelo cadastro, a correção do "outro médico" nunca casaria.
+        from repasses.services import correcoes
+        from repasses import views
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel)
+        regras.processar(rel, livro)
+        b = next(x for x in rel.blocos if 'tharcila' in x.profissional.lower())
+        canon = livro.medico_por_nome(b.profissional).nome
+        self.assertNotEqual(canon, b.profissional)         # cadastro != MedPlus
+        proc = next(p.procedimento for p in b.procedimentos if 'facoemulsifica' in p.procedimento.lower())
+        correcoes.memorizar(proc, 'Sus Maringá', 777.0, medico=canon)   # como o modal salvaria
+
+        rel2 = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel2); views._separar_por_dia(rel2)
+        regras.processar(rel2, livro)
+        correcoes.aplicar(rel2, livro)                     # resolve o médico pelo cadastro
+        thar = [p.honorario for x in rel2.blocos if 'tharcila' in x.profissional.lower()
+                for p in x.procedimentos if 'facoemulsifica' in p.procedimento.lower()
+                and (p.convenio or '').strip().lower().startswith('sus')]
+        self.assertTrue(thar and all(abs(h - 777.0) < 0.01 for h in thar))
+
+
 class IndexSinteticasTests(SimpleTestCase):
     """idx ÚNICO p/ linhas sintéticas (preceptoria/fellow) — sem isso elas ficavam com
     idx=0 e colidiam com a 1a linha real (hon_0 duplicado corrompia o honorário no Salvar)."""
+
+    def test_detecta_medico_fora_do_cadastro(self):
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.services.regras import LivroRegras, Medico as MedicoR
+        livro = LivroRegras(medicos=[MedicoR(nome='Dr. Heric Sakamoto', categoria='medico')])
+        rel = SimpleNamespace(blocos=[medplus.BlocoMedico(profissional='Dr. Heric Sakamoto'),
+                                      medplus.BlocoMedico(profissional='Dra. Fulana Nova Silva')])
+        novos = views._medicos_desconhecidos(rel, livro)
+        self.assertIn('Dra. Fulana Nova Silva', novos)     # fora do cadastro
+        self.assertNotIn('Dr. Heric Sakamoto', novos)      # já cadastrado
 
     def test_idx_unico_sem_colisao(self):
         from types import SimpleNamespace
@@ -400,6 +462,26 @@ class LoteHistoricoTests(TestCase):
         r = self.client.post(f'/lotes/{lote.id}/excluir/', follow=True)
         self.assertFalse(Lote.objects.filter(id=lote.id).exists())
         self.assertFalse(Repasse.objects.filter(lote_id=lote.id).exists())
+
+    def test_cadastrar_medico_novo(self):
+        from repasses.models import Medico
+        lote = self._cria_lote()   # garante o upload disponível (Lote.upload_conteudo)
+        nome = 'Dr. Freelancer Teste da Silva'
+        # sem categoria escolhida -> NÃO cadastra (o sistema não assume)
+        self.client.post('/importar/cadastrar-medicos/', {
+            'token': lote.token, 'novo_count': '1',
+            'novo_nome_0': nome, 'novo_categoria_0': ''})
+        self.assertFalse(Medico.objects.filter(nome=nome).exists())
+        # com categoria + papel -> cadastra
+        self.client.post('/importar/cadastrar-medicos/', {
+            'token': lote.token, 'novo_count': '1', 'novo_nome_0': nome,
+            'novo_categoria_0': 'medico', 'novo_razao_0': 'FREELANCER LTDA',
+            'novo_regra_0': 'R$ 100/consulta', 'novo_papeis_0': 'anestesista'})
+        m = Medico.objects.filter(nome=nome).first()
+        self.assertIsNotNone(m)
+        self.assertEqual(m.categoria, 'medico')
+        self.assertEqual(m.razao_social, 'FREELANCER LTDA')
+        self.assertTrue(m.eh_anestesista)
 
     def test_baixar_tudo_zip(self):
         import zipfile

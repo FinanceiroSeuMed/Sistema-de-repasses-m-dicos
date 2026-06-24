@@ -39,11 +39,27 @@ def _buscar(index, proc_n, conv_n, med_n):
     return None
 
 
-def aplicar(resultado) -> int:
+def medico_norm(profissional, livro=None) -> str:
+    """Chave normalizada do médico, RESOLVIDA pelo cadastro quando possível.
+
+    O nome no MedPlus ("Dra. Tharcila Breginski da Rocha (PR2)") quase nunca é igual
+    ao do cadastro ("Dra. Tharcila..."). Para a correção memorizada de um médico casar
+    de verdade nos próximos meses, os dois lados precisam usar a MESMA chave — então,
+    havendo livro, casamos o nome pelo matcher por tokens (livro.medico_por_nome) e
+    usamos o nome do CADASTRO como chave canônica. Sem livro/sem casar: o próprio nome."""
+    if livro is not None:
+        m = livro.medico_por_nome(profissional)
+        if m is not None:
+            return normalizar(_sem_sufixo(m.nome))
+    return normalizar(_sem_sufixo(profissional))
+
+
+def aplicar(resultado, livro=None) -> int:
     """Sobrepõe os honorários do resultado com as correções memorizadas ativas.
 
     Retorna quantas linhas foram corrigidas. Mantém a precisão cheia (o
-    arredondamento para Reais é só na exibição/escrita final)."""
+    arredondamento para Reais é só na exibição/escrita final). `livro` (opcional)
+    resolve o médico pelo cadastro para a correção por-médico casar (ver medico_norm)."""
     ativos = list(CorrecaoMemorizada.objects.filter(ativo=True))
     if not ativos:
         return 0
@@ -51,7 +67,7 @@ def aplicar(resultado) -> int:
 
     n = 0
     for bloco in resultado.blocos:
-        med_n = normalizar(_sem_sufixo(bloco.profissional))
+        med_n = medico_norm(bloco.profissional, livro)
         for p in bloco.procedimentos:
             if p.status_calculo in _NAO_SOBRESCREVER:
                 continue
