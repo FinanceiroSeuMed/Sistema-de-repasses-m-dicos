@@ -505,6 +505,43 @@ class ReginaTests(SimpleTestCase):
         self.assertFalse(views._eh_regina_dinheiro('Dra. Isabela Miwa Maeda'))
 
 
+class KeitiOciEquipeTests(SimpleTestCase):
+    """Agenda 'Equipe Dr. Keiti' -> repasse do Dr. Keiti; OCI não vira pacote de R$1.000."""
+
+    def test_dono_da_agenda_equipe(self):
+        from repasses import views
+        self.assertEqual(views._dono_agenda_equipe('equipe - dr. keiti shirasu'),
+                         views._NOME_KEITI)
+        self.assertIsNone(views._dono_agenda_equipe('dra. thalia macaris'))
+        self.assertIsNone(views._dono_agenda_equipe('equipe dra. regina'))
+
+    def test_filtrar_renomeia_equipe_keiti(self):
+        from types import SimpleNamespace
+        from repasses import views
+        b = medplus.BlocoMedico(profissional='Equipe - Dr. Keiti Shirasu')
+        rel = SimpleNamespace(blocos=[b])
+        views._filtrar_blocos(rel)
+        self.assertEqual(len(rel.blocos), 1)               # não é mais descartada
+        self.assertEqual(rel.blocos[0].profissional, views._NOME_KEITI)
+
+    def test_aplicar_keiti_oci_mantem_valor(self):
+        from repasses import views
+        oci = medplus.Procedimento(None, '', '', 'OCI AVALIAÇÃO DE ESTRABISMO',
+                                   'OCI - SUS', 1, 200, None)
+        oci.classe = medplus.CLASSE_EXAME           # OCI vem como "Exames e Consultas"
+        oci.honorario = 50.0; oci.status_calculo = 'calculado'
+        oci.motivo_calculo = 'Valor fixo (regra "Avaliação de Estrabismo").'
+        exame = medplus.Procedimento(None, '', '', 'Consulta', 'SUS', 1, 0, None)
+        exame.classe = medplus.CLASSE_EXAME
+        b = medplus.BlocoMedico(profissional='Dr. Keiti Fernando Shirasu')
+        b.procedimentos = [oci, exame]
+        from types import SimpleNamespace
+        views._aplicar_keiti(SimpleNamespace(blocos=[b]))
+        valores = [p.honorario for p in b.procedimentos]
+        self.assertIn(50.0, valores)        # OCI manteve o próprio valor
+        self.assertIn(1000.0, valores)      # a consulta (não-OCI) virou pacote de R$1.000
+
+
 class CamposObrigatoriosTests(SimpleTestCase):
     """Campos a verificar (classe/forma de pagamento/fellow/anestesista) bloqueiam o export."""
 

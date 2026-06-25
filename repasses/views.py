@@ -187,12 +187,31 @@ _RE_TITULO_MEDICO = re.compile(r'dra?\b')
 # Médicos/agendas deixados de fora por ora (entram em funcionalidade futura)
 _EXCLUIR_MEDICOS = ('crivari', 'guilherme', 'maria marta')
 
+# Agendas de "equipe" cujo trabalho (ex.: OCI) é repassado a um médico específico.
+# A diretoria pediu: lançamentos da agenda "Equipe Dr. Keiti" são do Dr. Keiti.
+_NOME_KEITI = 'Dr. Keiti Fernando Shirasu'
+
+
+def _dono_agenda_equipe(n):
+    """Se a agenda for de uma 'equipe' que repassa a um médico, devolve o nome
+    canônico do médico dono; senão, None. `n` já vem normalizado (minúsculo, s/ acento)."""
+    if 'equipe' in n and 'keiti' in n:
+        return _NOME_KEITI
+    return None
+
 
 def _filtrar_blocos(resultado):
     """Remove agendas que não são de médico (sem Dr./Dra.) e os deixados de fora."""
     novos = []
     for bloco in resultado.blocos:
         n = regras.normalizar(bloco.profissional)
+        dono = _dono_agenda_equipe(n)
+        if dono:
+            # "Equipe - Dr. Keiti Shirasu" -> o repasse é do Dr. Keiti. Renomeia aqui
+            # (antes do _separar_por_dia) para fundir com a agenda dele, se houver.
+            bloco.profissional = dono
+            novos.append(bloco)
+            continue
         if not _RE_TITULO_MEDICO.match(n):
             continue  # ex.: "Agenda Glaucoma", "Agenda Externa"
         if any(x in n for x in _EXCLUIR_MEDICOS):
@@ -384,14 +403,23 @@ def _oci_residentes(resultado, livro):
 
 
 def _aplicar_keiti(resultado):
-    """Dr. Keiti: R$ 1.000 (consultas/exames do dia) + 30% do valor das cirurgias."""
+    """Dr. Keiti: R$ 1.000 (consultas/exames do dia) + 30% do valor das cirurgias.
+
+    OCI (inclusive os vindos da agenda "Equipe Dr. Keiti") NÃO entram no pacote de
+    R$ 1.000 — cada OCI mantém o seu próprio valor de repasse (regra do convênio)."""
     for bloco in resultado.blocos:
         if 'keiti' not in regras.normalizar(bloco.profissional):
             continue
         tem_exame = False
         novas = []
         for p in bloco.procedimentos:
-            if p.classe == medplus.CLASSE_CIRURGIA and p.valor:
+            if regras.mapear_convenio(p.convenio) == 'oci':
+                # OCI da agenda "Equipe Dr. Keiti" -> repasse do Dr. Keiti, valor próprio.
+                if not (p.motivo_calculo or '').lower().startswith('oci'):
+                    p.motivo_calculo = (f'OCI repassado ao Dr. Keiti — {p.motivo_calculo}'
+                                        if p.motivo_calculo else 'OCI repassado ao Dr. Keiti.')
+                novas.append(p)
+            elif p.classe == medplus.CLASSE_CIRURGIA and p.valor:
                 p.honorario = round(0.30 * p.valor, 2)
                 p.status_calculo = 'calculado'
                 p.motivo_calculo = 'Dr. Keiti: 30% do valor da cirurgia.'
