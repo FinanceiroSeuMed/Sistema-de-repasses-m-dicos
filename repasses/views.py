@@ -507,8 +507,10 @@ def _resolver_cirurgias(resultado, post):
                 continue
             modo = (post.get(f'cat_modo_{p.idx}') or '').strip()
             fellow = (post.get(f'cat_fellow_{p.idx}') or '').strip()
-            if not modo:
-                continue  # não preenchido — permanece pendente
+            if fellow in (_VERIFICAR, _SEM):
+                fellow = ''   # "a verificar"/"sem fellow" -> cirurgião 100%
+            if modo not in ('avista', 'parcelado'):
+                continue  # forma de pagamento não confirmada — permanece pendente
             taxa = regras.CATARATA_AVISTA if modo == 'avista' else regras.CATARATA_PARCELADO
             total = taxa * p.valor
             if fellow:
@@ -574,44 +576,87 @@ def _resolver_preceptoria(resultado, post):
         bloco.procedimentos.append(linha)
 
 
-# Anestesistas pagos em dinheiro (fora da OMIE) — não entram na seleção nem geram
-# linha/repasse. Hoje: Dra. Regina.
-_ANESTESISTAS_FORA_OMIE = ('regina',)
+# Sentinelas dos campos obrigatórios (devem ser confirmados antes de exportar):
+_VERIFICAR = '__verificar__'   # pré-seleção "a verificar" (não confirmado)
+_SEM = '__sem__'               # confirmado "sem" (sem anestesista / sem fellow)
 
 
-def _anestesista_fora_omie(nome):
+def _eh_regina_dinheiro(nome):
+    """A 'Dra. Regina' (indivíduo, paga em DINHEIRO, fora da OMIE) — mas NÃO a
+    EQUIPE/Residentes da Dra. Regina, que recebem repasse normal. (Diretoria 2026-06-25.)"""
     n = regras.normalizar(nome)
-    return any(x in n for x in _ANESTESISTAS_FORA_OMIE)
+    return 'regina' in n and not any(w in n for w in ('equipe', 'residente', 'rediente', 'grupo', 'time'))
+
+
+def _valor_regina(n_cirurgias):
+    """Valor em dinheiro da Dra. Regina por nº de cirurgias no dia: R$ 1.500 a partir
+    de 24, senão R$ 1.000. (Diretoria 2026-06-25.)"""
+    return 1500.0 if n_cirurgias >= 24 else 1000.0
 
 
 def _resolver_anestesistas(resultado, post):
-    """Para cada cirurgião com cirurgia, registra o anestesista escolhido na
-    revisão (valor fixo do dia + horas extras) — gera linha no a pagar e repasse."""
+    """Para cada cirurgião com cirurgia, registra o anestesista escolhido na revisão
+    (valor fixo do dia + horas extras) — gera linha no a pagar e repasse. A Dra. Regina
+    é exceção: paga em dinheiro, só conta as cirurgias e vira um LEMBRETE (não OMIE)."""
+    from collections import defaultdict
+    regina = defaultdict(lambda: {'n': 0, 'clinicas': set()})   # dia -> contagem de cirurgias
     for i, bloco in enumerate(list(resultado.blocos)):
         if not bloco.tem_cirurgia:
             continue
         nome = (post.get(f'anest_nome_{i}') or '').strip()
-        if not nome or _anestesista_fora_omie(nome):
-            continue  # Regina é paga em dinheiro, fora da OMIE
-        horas = _num(post.get(f'anest_horas_{i}')) or 0
-        valor = regras.valor_anestesista(nome, horas)
-        m = Medico.objects.filter(nome=nome).first()
-        # Só as CIRURGIAS de fato entram no repasse do anestesista (não os
-        # procedimentos de consultório como YAG/laser).
+        if not nome or nome in (_VERIFICAR, _SEM):
+            continue  # não escolhido / sem anestesista (obrigatoriedade checada na exportação)
+        # Só as CIRURGIAS de fato (não YAG/laser de consultório).
         cirurgias = [p for p in bloco.procedimentos
                      if p.classe == medplus.CLASSE_CIRURGIA and medplus.eh_cirurgia(p.procedimento)]
         datas = [p.data for p in cirurgias if p.data]
+        dia = max(datas) if datas else bloco.data
+        if _eh_regina_dinheiro(nome):
+            regina[dia]['n'] += len(cirurgias)
+            regina[dia]['clinicas'].add(getattr(bloco, 'clinica', '') or '')
+            continue
+        horas = _num(post.get(f'anest_horas_{i}')) or 0
+        valor = regras.valor_anestesista(nome, horas)
+        m = Medico.objects.filter(nome=nome).first()
         resultado.anestesistas.append({
             'indice': i,
             'anestesista': nome,
             'razao_social': m.razao_social if m else '',
             'cirurgiao': bloco.profissional,
             'clinica': getattr(bloco, 'clinica', '') or '',
-            'data': max(datas) if datas else None,
+            'subunidade': getattr(bloco, 'subunidade', ''),
+            'data': dia,
             'horas': int(horas) if horas else 0,
             'valor': valor,
             'cirurgias': cirurgias,
         })
+    # Lembretes da Dra. Regina (dinheiro, fora da OMIE) — um por dia.
+    resultado.lembretes_regina = [
+        {'dia': dia.strftime('%d/%m/%Y') if dia else 'sem data', 'n': info['n'],
+         'valor': _valor_regina(info['n'])}
+        for dia, info in sorted(regina.items(), key=lambda kv: str(kv[0])) if info['n']]
+
+
+def _campos_pendentes(resultado, post):
+    """Campos OBRIGATÓRIOS ainda não confirmados ('a verificar') — bloqueiam a
+    exportação. Devolve [(nome_do_campo, descrição)] na ordem da tela:
+    classificação (A classificar), forma de pagamento + fellow (catarata particular)
+    e anestesista (cirurgias). (Diretoria 2026-06-25.)"""
+    pend = []
+    for i, bloco in enumerate(resultado.blocos):
+        if bloco.tem_cirurgia and not getattr(bloco, 'participacao', False):
+            if (post.get(f'anest_nome_{i}') or '').strip() in ('', _VERIFICAR):
+                pend.append((f'anest_nome_{i}', f'Anestesista de {bloco.profissional} — confirme (ou "sem anestesista").'))
+        for p in bloco.procedimentos:
+            if p.status_calculo == regras.CATARATA or getattr(p, 'eh_catarata_part', False):
+                if (post.get(f'cat_modo_{p.idx}') or '').strip() not in ('avista', 'parcelado'):
+                    pend.append((f'cat_modo_{p.idx}', f'Forma de pagamento da catarata ({bloco.profissional}).'))
+                if (post.get(f'cat_fellow_{p.idx}') or '').strip() in ('', _VERIFICAR):
+                    pend.append((f'cat_fellow_{p.idx}', f'Fellow na catarata ({bloco.profissional}) — confirme (ou "sem fellow").'))
+            elif (p.classe == medplus.CLASSE_INDEFINIDA and (p.honorario or 0) > 0
+                  and not getattr(p, 'sintetica', False)):
+                pend.append((f'classe_{p.idx}', f'Classifique "{p.procedimento[:34]}".'))
+    return pend
 
 
 def _resumir_pendencias(itens):
@@ -821,8 +866,10 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'medicos_memo': list(Medico.objects.exclude(categoria=Medico.CATEGORIA_RESIDENTE)
                              .order_by('nome').values_list('nome', flat=True)),
         'fellows': list(Medico.objects.filter(eh_fellow=True)),
-        'anestesistas': [m for m in Medico.objects.filter(eh_anestesista=True)
-                         if not _anestesista_fora_omie(m.nome)],
+        # Todos os anestesistas (inclui Dra. Regina e Equipe Dra. Regina). A Regina,
+        # se escolhida, vira lembrete em dinheiro em vez de repasse.
+        'anestesistas': list(Medico.objects.filter(eh_anestesista=True).order_by('nome')),
+        'lembretes_regina': getattr(resultado, 'lembretes_regina', []),
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
     }
 
@@ -839,6 +886,18 @@ def exportar(request):
     _salvar_rascunho(token, request.POST)               # persiste as edições
     # _preparar_revisao já resolve anestesistas, catarata E preceptoria
     resultado, aviso, dados = _preparar_revisao(token)
+
+    # Campos obrigatórios a verificar (classe/forma de pagamento/fellow/anestesista):
+    # bloqueia a exportação e devolve a revisão com os campos destacados p/ piscar.
+    pend_obrig = _campos_pendentes(resultado, request.POST)
+    if pend_obrig:
+        ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados,
+                           pendencias=[d for _, d in pend_obrig])
+        ctx['campos_pendentes'] = [c for c, _ in pend_obrig]
+        ctx['info'] = ['⚠️ Confirme os campos destacados (em amarelo) antes de exportar — '
+                       'inclusive os "sem anestesista"/"sem fellow", para não passar nada batido.']
+        return render(request, 'repasses/revisao.html', ctx)
+
     info = _memorizar_correcoes(resultado, request.POST)
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)

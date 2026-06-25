@@ -193,14 +193,16 @@ class RepasseLayoutTests(SimpleTestCase):
         cr = self._linha_cab()
         self.assertEqual([self.ws.cell(cr, c).value for c in range(1, 7)],
                          ['Data', 'Paciente', 'Procedimento', 'Convênio', 'Qtd.', 'Honorário'])
-        tot = next(r for r in range(cr, self.ws.max_row + 1) if self.ws.cell(r, 1).value == 'Total:')
-        self.assertTrue(any(str(m).startswith(f'B{tot}') for m in self.ws.merged_cells.ranges))  # B:C mesclado
+        # Total à DIREITA: rótulo "Total" na col 5 (Qtd) e valor na col 6 (Honorário).
+        tot = next(r for r in range(cr, self.ws.max_row + 1) if self.ws.cell(r, 5).value == 'Total')
+        esperado = repasse._total(self.bloco)
+        self.assertAlmostEqual(float(self.ws.cell(tot, 6).value), esperado)
         pac = next(p.paciente for p in repasse.pagaveis(self.bloco) if p.paciente)
         self.assertEqual(self.ws.cell(cr + 1, 2).value, pac)   # 1ª linha traz o paciente
 
     def test_pdf_igual_ao_excel(self):
         self.assertIn('Paciente', self.pdf_txt)        # mesma coluna do Excel
-        self.assertIn('Total:', self.pdf_txt)
+        self.assertIn('Total', self.pdf_txt)
         self.assertNotIn('preceptoria a lançar', self.pdf_txt.lower())  # aviso só na preview
 
 
@@ -483,6 +485,49 @@ class FellowSplitTests(TestCase):
         views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow',
                                         'cat_chefe_5': '-500'})
         self.assertAlmostEqual(p.honorario, 1800.0)
+
+
+class ReginaTests(SimpleTestCase):
+    """Dra. Regina: valor por faixa + distinção indivíduo x equipe."""
+
+    def test_valor_por_faixa(self):
+        from repasses import views
+        self.assertEqual(views._valor_regina(1), 1000.0)
+        self.assertEqual(views._valor_regina(23), 1000.0)
+        self.assertEqual(views._valor_regina(24), 1500.0)   # a partir de 24
+        self.assertEqual(views._valor_regina(40), 1500.0)
+
+    def test_individuo_vs_equipe(self):
+        from repasses import views
+        self.assertTrue(views._eh_regina_dinheiro('Dra. Regina'))
+        self.assertFalse(views._eh_regina_dinheiro('Equipe Dra. Regina'))
+        self.assertFalse(views._eh_regina_dinheiro('Redientes Dra. Regina'))
+        self.assertFalse(views._eh_regina_dinheiro('Dra. Isabela Miwa Maeda'))
+
+
+class CamposObrigatoriosTests(SimpleTestCase):
+    """Campos a verificar (classe/forma de pagamento/fellow/anestesista) bloqueiam o export."""
+
+    def _rel(self):
+        from types import SimpleNamespace
+        p = medplus.Procedimento(None, '', 'Pac', 'Facoemulsificação', 'Particular', 1, 1000, None)
+        p.idx = 1
+        p.classe = medplus.CLASSE_CIRURGIA      # tem_cirurgia -> exige anestesista
+        p.status_calculo = regras.CATARATA      # exige forma de pagamento + fellow
+        b = medplus.BlocoMedico(profissional='Dr. X'); b.procedimentos = [p]
+        return SimpleNamespace(blocos=[b])
+
+    def test_pendente_quando_nao_confirmado(self):
+        from repasses import views
+        campos = dict(views._campos_pendentes(self._rel(), {}))
+        self.assertIn('anest_nome_0', campos)
+        self.assertIn('cat_modo_1', campos)
+        self.assertIn('cat_fellow_1', campos)
+
+    def test_ok_quando_confirmado(self):
+        from repasses import views
+        post = {'anest_nome_0': '__sem__', 'cat_modo_1': 'avista', 'cat_fellow_1': '__sem__'}
+        self.assertEqual(views._campos_pendentes(self._rel(), post), [])
 
 
 class IndexSinteticasTests(SimpleTestCase):

@@ -11,17 +11,27 @@ Geradores do repasse do médico: Excel (arquivo interno) e PDF (enviado ao médi
 from __future__ import annotations
 
 import io
+import os
 import re
 
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 _INVALIDO = re.compile(r'[\\/:*?"<>|]+')
+
+
+def _logo_path():
+    """Caminho do logo da SeuMed (None se não existir)."""
+    from django.conf import settings
+    p = getattr(settings, 'LOGO_PATH', None)
+    return str(p) if p and os.path.exists(str(p)) else None
 
 
 def moeda(valor) -> str:
@@ -131,21 +141,32 @@ def gerar_excel(bloco, unidade: str) -> bytes:
     ws.title = 'Repasse'
 
     negrito = Font(bold=True)
-    titulo = Font(bold=True, size=14)
+    preto14 = Font(bold=True, size=14, color='000000')   # filial em PRETO (diretoria 2026-06-25)
     cabec_fill = PatternFill('solid', fgColor='0B5FA5')
     cabec_font = Font(bold=True, color='FFFFFF')
-    esq = Alignment(horizontal='left')
+    dir_ = Alignment(horizontal='right')
 
-    ws['A1'] = _titulo_clinica(bloco, unidade)
-    ws['A1'].font = titulo
-    ws['A2'] = 'Demonstrativo de Repasse Médico'
-    ws['A2'].font = negrito
-    ws['A3'] = f'Profissional: {bloco.profissional}'
+    # Identidade visual (logo) no topo; depois a FILIAL em preto, à esquerda.
+    logo = _logo_path()
+    topo = 1
+    if logo:
+        try:
+            img = XLImage(logo)
+            img.width, img.height = 176, 64   # 440x160 -> ~2.75:1
+            ws.add_image(img, 'A1')
+            ws.row_dimensions[1].height = 50
+            topo = 2
+        except Exception:
+            pass
+    ws.cell(topo, 1, _titulo_clinica(bloco, unidade)).font = preto14
+    ws.cell(topo + 1, 1, 'Demonstrativo de Repasse Médico').font = negrito
+    ws.cell(topo + 2, 1, f'Profissional: {bloco.profissional}')
+    linha = topo + 3
     if getattr(bloco, 'razao_social', ''):
-        ws['A4'] = f'Razão Social: {bloco.razao_social}'
+        ws.cell(linha, 1, f'Razão Social: {bloco.razao_social}'); linha += 1
     if data_ref:
-        ws['A5'] = f'Data do atendimento: {data_ref.strftime("%d/%m/%Y")}'
-    linha = 7
+        ws.cell(linha, 1, f'Data do atendimento: {data_ref.strftime("%d/%m/%Y")}'); linha += 1
+    linha += 1
 
     cab, dados, total, _ = _linhas_repasse(bloco)
     for c, titulo_col in enumerate(cab, start=1):
@@ -160,20 +181,12 @@ def gerar_excel(bloco, unidade: str) -> bytes:
         cel_h = ws.cell(linha, 6, d[5]); cel_h.number_format = 'R$ #,##0.00'
         linha += 1
 
-    def _linha_total(rotulo, valor, bold=False):
-        nonlocal linha
-        cel_rot = ws.cell(linha, 1, rotulo)
-        # "Total:" na 1ª coluna; valor na 2ª, agrupado com a 3ª, alinhado à esquerda.
-        ws.merge_cells(start_row=linha, start_column=2, end_row=linha, end_column=3)
-        cel_v = ws.cell(linha, 2, valor)
-        cel_v.number_format = 'R$ #,##0.00'
-        cel_v.alignment = esq
-        if bold:
-            cel_rot.font = negrito
-            cel_v.font = negrito
-        linha += 1
-
-    _linha_total('Total:', total, bold=True)
+    # Total à DIREITA: rótulo na coluna Qtd, valor logo abaixo da coluna Honorário.
+    cel_rot = ws.cell(linha, 5, 'Total'); cel_rot.font = negrito; cel_rot.alignment = dir_
+    cel_total = ws.cell(linha, 6, total)
+    cel_total.number_format = 'R$ #,##0.00'
+    cel_total.font = negrito
+    cel_total.alignment = dir_
 
     larguras = [12, 26, 44, 16, 6, 14]
     for i, w in enumerate(larguras, start=1):
@@ -193,13 +206,23 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
                             leftMargin=16 * mm, rightMargin=16 * mm,
                             title=f'Repasse {bloco.profissional}')
     estilos = getSampleStyleSheet()
+    # Filial em PRETO, à esquerda, logo abaixo da identidade visual. (Diretoria 2026-06-25.)
     st_titulo = ParagraphStyle('t', parent=estilos['Title'], fontSize=15, spaceAfter=2,
-                               textColor=colors.HexColor('#0B5FA5'))
+                               alignment=0, textColor=colors.black)
     st_sub = ParagraphStyle('s', parent=estilos['Normal'], fontSize=9, textColor=colors.HexColor('#52606d'))
     st_info = ParagraphStyle('i', parent=estilos['Normal'], fontSize=10, spaceAfter=2)
     st_cel = ParagraphStyle('c', parent=estilos['Normal'], fontSize=8.5, leading=11)
 
-    elems = [
+    elems = []
+    logo = _logo_path()
+    if logo:
+        try:
+            im = RLImage(logo, width=46 * mm, height=46 / 2.75 * mm)   # mantém a proporção 440x160
+            im.hAlign = 'LEFT'
+            elems += [im, Spacer(1, 6)]
+        except Exception:
+            pass
+    elems += [
         Paragraph(_titulo_clinica(bloco, unidade), st_titulo),
         Paragraph('Demonstrativo de Repasse Médico', st_sub),
         Spacer(1, 8),
@@ -218,34 +241,25 @@ def gerar_pdf(bloco, unidade: str) -> bytes:
     for d in linhas_dados:
         dados.append([d[0], Paragraph(d[1] or '', st_cel), Paragraph(d[2], st_cel),
                       d[3], str(d[4]), moeda(d[5])])
-    # Total: "Total:" na 1ª coluna, valor a seguir (mesclado), à esquerda — igual ao
-    # Excel. Sem linha de "Arredondamento" (a diferença já entrou numa linha acima).
-    n_extra = 1
-    dados.append(['Total:', moeda(total), '', '', '', ''])
+    # Total à DIREITA: rótulo na coluna Qtd, valor logo abaixo da coluna Honorário.
+    dados.append(['', '', '', '', 'Total', moeda(total)])
+    rt = len(dados) - 1
 
     tabela = Table(dados, colWidths=[20 * mm, 38 * mm, 54 * mm, 26 * mm, 12 * mm, 26 * mm], repeatRows=1)
-    estilo_tab = [
+    tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0B5FA5')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 8.5),
         ('ALIGN', (4, 0), (5, -1), 'RIGHT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1 - n_extra), [colors.white, colors.HexColor('#F7F9FC')]),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F7F9FC')]),
         ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#E2E8F0')),
+        ('BACKGROUND', (0, rt), (-1, rt), colors.HexColor('#EEF2F7')),
+        ('FONTNAME', (4, rt), (5, rt), 'Helvetica-Bold'),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-    ]
-    # Linhas de total/arredondamento: valor mesclado (col 1+2), à esquerda, destacado.
-    for i in range(n_extra):
-        r = len(dados) - n_extra + i
-        estilo_tab += [
-            ('SPAN', (1, r), (2, r)),
-            ('ALIGN', (1, r), (2, r), 'LEFT'),
-            ('BACKGROUND', (0, r), (-1, r), colors.HexColor('#EEF2F7')),
-        ]
-    estilo_tab.append(('FONTNAME', (0, len(dados) - 1), (1, len(dados) - 1), 'Helvetica-Bold'))  # "Total:"
-    tabela.setStyle(TableStyle(estilo_tab))
+    ]))
     elems.append(tabela)
     elems.append(Spacer(1, 10))
     elems.append(Paragraph(
@@ -263,20 +277,27 @@ def gerar_excel_anestesista(entry, unidade: str) -> bytes:
     ws.title = 'Repasse'
 
     negrito = Font(bold=True)
-    titulo = Font(bold=True, size=14)
+    preto14 = Font(bold=True, size=14, color='000000')
     cabec_fill = PatternFill('solid', fgColor='0B5FA5')
     cabec_font = Font(bold=True, color='FFFFFF')
 
-    ws['A1'] = (entry.get('clinica') or '').strip() or unidade or 'Repasse de Anestesia'
-    ws['A1'].font = titulo
-    ws['A2'] = 'Demonstrativo de Repasse de Anestesia'
-    ws['A2'].font = negrito
-    ws['A3'] = f'Anestesista: {entry.get("anestesista")}'
-    ws['A4'] = f'Cirurgião: {entry.get("cirurgiao")}'
+    logo = _logo_path()
+    topo = 1
+    if logo:
+        try:
+            img = XLImage(logo); img.width, img.height = 176, 64
+            ws.add_image(img, 'A1'); ws.row_dimensions[1].height = 50; topo = 2
+        except Exception:
+            pass
+    ws.cell(topo, 1, (entry.get('clinica') or '').strip() or unidade or 'Repasse de Anestesia').font = preto14
+    ws.cell(topo + 1, 1, 'Demonstrativo de Repasse de Anestesia').font = negrito
+    ws.cell(topo + 2, 1, f'Anestesista: {entry.get("anestesista")}')
+    ws.cell(topo + 3, 1, f'Cirurgião: {entry.get("cirurgiao")}')
+    linha = topo + 4
     data = entry.get('data')
     if data:
-        ws['A5'] = f'Data: {data.strftime("%d/%m/%Y")}'
-    linha = 7
+        ws.cell(linha, 1, f'Data: {data.strftime("%d/%m/%Y")}'); linha += 1
+    linha += 1
 
     colunas = ['Data', 'Procedimento', 'Convênio', 'Qtd.']
     for c, titulo_col in enumerate(colunas, start=1):
@@ -317,13 +338,21 @@ def gerar_pdf_anestesista(entry, unidade: str) -> bytes:
                             title=f'Repasse anestesista {entry.get("anestesista")}')
     estilos = getSampleStyleSheet()
     st_titulo = ParagraphStyle('t', parent=estilos['Title'], fontSize=15, spaceAfter=2,
-                               textColor=colors.HexColor('#0B5FA5'))
+                               alignment=0, textColor=colors.black)
     st_sub = ParagraphStyle('s', parent=estilos['Normal'], fontSize=9, textColor=colors.HexColor('#52606d'))
     st_info = ParagraphStyle('i', parent=estilos['Normal'], fontSize=10, spaceAfter=2)
     st_cel = ParagraphStyle('c', parent=estilos['Normal'], fontSize=8.5, leading=11)
 
     data = entry.get('data')
-    elems = [
+    elems = []
+    logo = _logo_path()
+    if logo:
+        try:
+            im = RLImage(logo, width=46 * mm, height=46 / 2.75 * mm); im.hAlign = 'LEFT'
+            elems += [im, Spacer(1, 6)]
+        except Exception:
+            pass
+    elems += [
         Paragraph((entry.get('clinica') or '').strip() or unidade or 'Repasse de Anestesia', st_titulo),
         Paragraph('Demonstrativo de Repasse de Anestesia', st_sub),
         Spacer(1, 8),

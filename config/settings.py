@@ -137,6 +137,9 @@ REGRAS_REPASSE_PATH = BASE_DIR / 'amostras' / 'regras_repasse.xlsx'
 OMIE_PAGAR_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
 OMIE_RECEBER_TEMPLATE = BASE_DIR / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
 
+# Logo da SeuMed — topo do repasse (Excel/PDF). Fundo transparente, 440x160.
+LOGO_PATH = BASE_DIR / 'repasses' / 'recursos' / 'Logo SeuMed - Fundo transparente.png'
+
 # A categoria do contas a RECEBER agora é por grupo de convênio (SUS / CISAMUSEP /
 # PARTICULARES) — ver omie.GRUPO_RECEBER. Não há mais categoria única configurável aqui.
 
@@ -174,6 +177,7 @@ if getattr(sys, 'frozen', False):
     REGRAS_REPASSE_PATH = _RES / 'amostras' / 'regras_repasse.xlsx'
     OMIE_PAGAR_TEMPLATE = _RES / 'repasses' / 'recursos' / 'omie_contas_pagar_modelo.xlsx'
     OMIE_RECEBER_TEMPLATE = _RES / 'repasses' / 'recursos' / 'omie_contas_receber_modelo.xlsx'
+    LOGO_PATH = _RES / 'repasses' / 'recursos' / 'Logo SeuMed - Fundo transparente.png'
     DATABASES['default']['NAME'] = _DADOS / 'db.sqlite3'
     SAIDAS_DIR = _DADOS / 'saidas'
     UPLOADS_DIR = _DADOS / 'uploads'

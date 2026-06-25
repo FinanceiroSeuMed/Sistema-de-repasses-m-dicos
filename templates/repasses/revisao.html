@@ -26,6 +26,13 @@
 
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
+{% if lembretes_regina %}
+<div class="alerta alerta-ok" style="border-color:#b6e3cd">
+    💵 <strong>Dra. Regina — pagar em dinheiro (fora da OMIE):</strong>
+    {% for r in lembretes_regina %}<br>{{ r.dia }}: {{ r.n }} cirurgia(s) → <strong>{{ r.valor|moeda }}</strong>{% endfor %}
+</div>
+{% endif %}
+
 {% if medicos_novos %}
 <section class="medicos-novos">
     <h3>🆕 {{ medicos_novos|length }} médico(s) novo(s) — classifique antes de exportar</h3>
@@ -105,7 +112,7 @@
 </section>
 {% endif %}
 
-<form method="post" action="{% url 'repasses:exportar' %}">
+<form method="post" action="{% url 'repasses:exportar' %}" id="form-revisao">
     {% csrf_token %}
     <input type="hidden" name="token" value="{{ token }}">
 
@@ -149,12 +156,14 @@
         <div class="anestesista-box">
             <strong>🔵 Houve anestesista nesta cirurgia?</strong>
             <span class="campo-inline">
-                <select name="anest_nome_{{ forloop.counter0 }}" class="inp-classe">
-                    <option value="">— sem anestesista —</option>
+                <select name="anest_nome_{{ forloop.counter0 }}" data-campo="anest_nome_{{ forloop.counter0 }}"
+                        class="inp-classe campo-obrig{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} precisa-verificar{% endif %}">
+                    <option value="__verificar__"{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} selected{% endif %}>— a verificar —</option>
+                    <option value="__sem__"{% if bloco.sel_anest_nome == '__sem__' %} selected{% endif %}>— sem anestesista —</option>
                     {% for a in anestesistas %}<option value="{{ a.nome }}"{% if a.nome == bloco.sel_anest_nome %} selected{% endif %}>{{ a.nome }}</option>{% endfor %}
                 </select>
             </span>
-            <small>ao escolher e clicar em <strong>Salvar</strong>, o repasse do anestesista aparece abaixo.</small>
+            <small>Confirme (anestesista ou "sem anestesista"). A <strong>Dra. Regina</strong> vira lembrete em dinheiro.</small>
         </div>
         {% endif %}
 
@@ -187,7 +196,8 @@
                         {% elif p.sintetica %}
                         <span class="hon-fixo" title="{{ p.motivo_calculo }}">{{ p.honorario|moeda }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
-                        <select class="inp-classe" name="cat_modo_{{ p.idx }}">
+                        <select name="cat_modo_{{ p.idx }}" data-campo="cat_modo_{{ p.idx }}"
+                                class="inp-classe campo-obrig{% if p.sel_cat_modo != 'avista' and p.sel_cat_modo != 'parcelado' %} precisa-verificar{% endif %}">
                             <option value="">à vista/parcelado?</option>
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
                             <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
@@ -218,12 +228,15 @@
                         {% if p.sintetica %}
                         <span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
-                        <select class="inp-classe" name="cat_fellow_{{ p.idx }}">
-                            <option value="">sem fellow</option>
+                        <select name="cat_fellow_{{ p.idx }}" data-campo="cat_fellow_{{ p.idx }}"
+                                class="inp-classe campo-obrig{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} precisa-verificar{% endif %}">
+                            <option value="__verificar__"{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} selected{% endif %}>fellow? a verificar</option>
+                            <option value="__sem__"{% if p.sel_cat_fellow == '__sem__' %} selected{% endif %}>sem fellow</option>
                             {% for f in fellows %}<option value="{{ f.nome }}"{% if f.nome == p.sel_cat_fellow %} selected{% endif %}>{{ f.nome }}</option>{% endfor %}
                         </select>
                         {% else %}
-                        <select class="inp-classe" name="classe_{{ p.idx }}">
+                        <select name="classe_{{ p.idx }}" data-campo="classe_{{ p.idx }}"
+                                class="inp-classe{% if p.classe == classe_indefinida and p.honorario %} campo-obrig precisa-verificar{% endif %}">
                             {% for c in classes %}
                             <option value="{{ c }}"{% if c == p.classe %} selected{% endif %}>{{ c }}</option>
                             {% endfor %}
@@ -278,6 +291,12 @@
     </section>
     {% endfor %}
 </form>
+
+{# Botão flutuante de exportar — sempre visível no canto inferior direito #}
+<button type="submit" form="form-revisao" formaction="{% url 'repasses:exportar' %}"
+        class="botao botao-primario fab-exportar" title="Gerar os arquivos">
+    ⬇ {% if downloads %}Reexportar{% else %}Exportar{% endif %}
+</button>
 
 {# Modal: para quais médicos a correção memorizada deve valer #}
 <div id="memo-modal" class="modal-overlay" hidden>
@@ -425,6 +444,39 @@
             if (td) td.querySelectorAll('.inp-split').forEach(function (i) { i.value = ''; });
         });
     });
+})();
+</script>
+
+{{ campos_pendentes|json_script:"campos-pendentes-data" }}
+<script>
+// Campos obrigatórios: limpa o destaque ao escolher um valor válido; ao voltar de uma
+// exportação bloqueada, rola até o 1º campo pendente e pisca os faltantes.
+(function () {
+    var INDEF = "{{ classe_indefinida|escapejs }}";
+    function invalido(sel) {
+        var v = sel.value;
+        return v === '__verificar__' || v === '' || v === INDEF;
+    }
+    document.querySelectorAll('select.campo-obrig').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            var inv = invalido(sel);
+            sel.classList.toggle('precisa-verificar', inv);
+            if (!inv) sel.classList.remove('piscando');
+        });
+    });
+    var el = document.getElementById('campos-pendentes-data');
+    var ids = [];
+    if (el) { try { ids = JSON.parse(el.textContent); } catch (e) {} }
+    if (!ids.length) return;
+    ids.forEach(function (nome) {
+        var c = document.querySelector('[data-campo="' + nome + '"]');
+        if (c) c.classList.add('precisa-verificar', 'piscando');
+    });
+    var primeiro = document.querySelector('[data-campo="' + ids[0] + '"]');
+    if (primeiro) {
+        primeiro.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        try { primeiro.focus({ preventScroll: true }); } catch (e) {}
+    }
 })();
 </script>
 {% endblock %}

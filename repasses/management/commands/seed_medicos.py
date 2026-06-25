@@ -74,6 +74,13 @@ class Command(BaseCommand):
             medico.save()
             existentes[chave] = medico
 
+        # Dra. Regina (indivíduo) — paga em DINHEIRO, fora da OMIE. A "Equipe/Residentes
+        # Dra. Regina" da planilha recebe repasse normal. (Diretoria 2026-06-25.)
+        Medico.objects.get_or_create(
+            nome='Dra. Regina',
+            defaults={'categoria': Medico.CATEGORIA_ANESTESISTA, 'eh_anestesista': True,
+                      'regra_obs': 'Paga em dinheiro: < 24 cirurgias = R$ 1.000; ≥ 24 = R$ 1.500.'})
+
         self.stdout.write(self.style.SUCCESS(
             f'Cadastro de médicos atualizado: {criados} criados, {atualizados} atualizados '
             f'({Medico.objects.count()} no total).'))
