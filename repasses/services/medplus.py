@@ -175,6 +175,7 @@ class BlocoMedico:
     razao_social: str = ''
     data: date | None = None          # dia do bloco (após separar por dia)
     clinica: str = ''                 # filial do bloco (após separar por clínica)
+    subunidade: str = ''              # 'PR2'/'PR3' (só p/ a clínica "PR2 e PR3"): glaucoma=PR3
     preceptoria_valor: float | None = None  # valor de preceptoria semanal sugerido
     participacao: bool = False        # bloco só de participação do fellow em catarata
 

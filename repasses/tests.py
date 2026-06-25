@@ -248,16 +248,27 @@ class OmieReceberTests(SimpleTestCase):
         self.assertEqual(omie.grupo_receber('Particular'), 'PARTICULARES')
         self.assertEqual(omie.grupo_receber('Parcerias I'), 'PARTICULARES')
 
-    def test_departamento_codigo(self):
-        # Mesma chave (código 01–07) no a pagar e no a receber; PR2 e PR3 = 07.
-        self.assertEqual(omie.departamento_cod('Maringá - Matriz'), '01')
-        self.assertEqual(omie.departamento_cod('Mandaguaçu'), '02')
-        self.assertEqual(omie.departamento_cod('Paiçandu'), '03')
-        self.assertEqual(omie.departamento_cod('Sarandi'), '04')
-        self.assertEqual(omie.departamento_cod('Maringá - Av Brasil'), '05')
-        self.assertEqual(omie.departamento_cod('Mandaguari'), '06')
-        self.assertEqual(omie.departamento_cod('Maringá - Filial PR2 e PR3'), '07')
-        self.assertIsNone(omie.departamento_cod('Outra'))
+    def test_departamento_texto(self):
+        # Texto "NN. Nome" (sem acento), mesmo no a pagar e no a receber.
+        self.assertEqual(omie.departamento('Maringá - Matriz'), '01. Matriz')
+        self.assertEqual(omie.departamento('Mandaguaçu'), '02. Mandaguacu')
+        self.assertEqual(omie.departamento('Paiçandu'), '03. Paicandu')
+        self.assertEqual(omie.departamento('Sarandi'), '04. Sarandi')
+        self.assertEqual(omie.departamento('Maringá - Av Brasil'), '05. Brasil')
+        self.assertEqual(omie.departamento('Mandaguari'), '06. Mandaguari')
+        # PR2 e PR3 (mesmo CNPJ 07): glaucoma/PR3 -> "07. PR3"; senão "07. PR2".
+        self.assertEqual(omie.departamento('Maringá - Filial PR2 e PR3', 'PR3'), '07. PR3')
+        self.assertEqual(omie.departamento('Maringá - Filial PR2 e PR3', 'PR2'), '07. PR2')
+        self.assertEqual(omie.departamento('Maringá - Filial PR2 e PR3'), '07. PR2')
+        self.assertIsNone(omie.departamento('Outra'))
+
+    def test_deteccao_pr3(self):
+        from repasses import views
+        self.assertTrue(views._eh_pr3('Dra. Fulana (PR3)'))
+        self.assertTrue(views._eh_pr3('Agenda Glaucoma'))
+        self.assertTrue(views._eh_pr3('Dr. Beltrano - Glaucoma'))
+        self.assertFalse(views._eh_pr3('Dra. Fulana (PR2)'))
+        self.assertFalse(views._eh_pr3('Dr. Heric Sakamoto'))
 
     @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
     def test_receber_22_06_estrutura(self):

@@ -54,7 +54,7 @@ def gerar_relatorio_mensal(linhas: list[dict], titulo: str = 'Repasses em Aberto
     ls = sorted(linhas, key=lambda x: ((x.get('medico') or '').lower(), x.get('data') or ''))
     r = 2
     for ln in ls:
-        ws.cell(r, 1, ln.get('clinica') or '')
+        ws.cell(r, 1, ln.get('departamento') or ln.get('clinica') or '')
         ws.cell(r, 2, ln.get('medico') or '')
         cel_v = ws.cell(r, 3, _data(ln.get('vencimento')))
         cel_v.number_format = 'DD/MM/YYYY'

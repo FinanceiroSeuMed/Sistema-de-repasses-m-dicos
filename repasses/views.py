@@ -294,32 +294,42 @@ def _medicos_desconhecidos(resultado, livro):
     return novos
 
 
-def _separar_por_dia(resultado):
-    """Um bloco por (MÉDICO, DIA, CLÍNICA).
+def _eh_pr3(nome) -> bool:
+    """A agenda é de GLAUCOMA / PR3? (decide o Departamento na clínica 'PR2 e PR3'.)
+    Regra da diretoria: nome da agenda com 'PR3' ou 'glaucoma' -> PR3; senão PR2."""
+    n = omie._norm_clinica(nome)        # minúsculas, sem acento (mantém '(pr3)')
+    return 'pr3' in n or 'glaucoma' in n
 
-    O sufixo de unidade no nome ('(Geral)', '(PR3)') NÃO diferencia: é a mesma
-    pessoa. Agrupa por (nome sem sufixo, dia, clínica da coluna própria), unindo
-    variantes do mesmo médico. Ex.: 'Dr. Carlos (Geral)' e 'Dr. Carlos (PR3)' no
-    mesmo dia/clínica viram um bloco só."""
+
+def _separar_por_dia(resultado):
+    """Um bloco por (MÉDICO, DIA, CLÍNICA[, PR2/PR3]).
+
+    O sufixo de unidade no nome ('(Geral)', '(PR3)') em geral NÃO diferencia: é a
+    mesma pessoa. Mas na clínica 'Maringá - Filial PR2 e PR3' a SUBUNIDADE importa
+    para o Departamento OMIE: agenda de glaucoma/PR3 -> PR3, o resto -> PR2; então
+    aí PR2 e PR3 viram blocos separados."""
     from datetime import date as _date
     grupos = {}
     ordem = []
     for bloco in resultado.blocos:
         nome = _nome_base_medico(bloco.profissional)
+        sub_origem = 'PR3' if _eh_pr3(bloco.profissional) else 'PR2'
         for p in bloco.procedimentos:
-            chave = (nome, p.data, p.clinica)
+            sub = sub_origem if omie.clinica_pr2_pr3(p.clinica) else ''
+            chave = (nome, p.data, p.clinica, sub)
             nb = grupos.get(chave)
             if nb is None:
                 nb = medplus.BlocoMedico(profissional=nome)
                 nb.data = p.data
                 nb.clinica = p.clinica
+                nb.subunidade = sub
                 grupos[chave] = nb
                 ordem.append(chave)
             nb.procedimentos.append(p)
 
     def _chave(k):
-        nome, d, c = k
-        return (d or _date.max, c or '', nome)
+        nome, d, c, sub = k
+        return (d or _date.max, c or '', sub, nome)
 
     resultado.blocos = [grupos[k] for k in sorted(ordem, key=_chave)]
 

@@ -60,17 +60,19 @@ FILIAL_CNPJ = {
     'maringa - filial pr2 e pr3':  '27.717.567/0007-25',
 }
 
-# Código do Departamento na OMIE (mesma chave no a pagar e no a receber). PR2 e PR3
-# compartilham o código 07 (mesma filial/CNPJ .../0007-25). (Diretoria 2026-06-24.)
-DEPARTAMENTO_COD = {
-    'maringa - matriz':            '01',
-    'mandaguacu':                  '02',
-    'paicandu':                    '03',
-    'sarandi':                     '04',
-    'maringa - av brasil':         '05',
-    'mandaguari':                  '06',
-    'maringa - filial pr2 e pr3':  '07',
+# Departamento na OMIE (mesmo texto no a pagar e no a receber). O texto é "NN. Nome"
+# (sem acento). PR2 e PR3 compartilham o código 07 (mesmo CNPJ .../0007-25), mas o
+# Departamento distingue: a agenda de GLAUCOMA (ou nome com "PR3") é "07. PR3"; o resto
+# da clínica "PR2 e PR3" é "07. PR2". (Diretoria 2026-06-25.)
+DEPARTAMENTO = {
+    'maringa - matriz':            '01. Matriz',
+    'mandaguacu':                  '02. Mandaguacu',
+    'paicandu':                    '03. Paicandu',
+    'sarandi':                     '04. Sarandi',
+    'maringa - av brasil':         '05. Brasil',
+    'mandaguari':                  '06. Mandaguari',
 }
+_CLINICA_PR2_PR3 = 'maringa - filial pr2 e pr3'
 
 # Categoria do a receber por grupo de convênio (diretoria: SUS / CISAMUSEP / PARTICULARES).
 GRUPO_RECEBER = {
@@ -98,9 +100,19 @@ def grupo_receber(convenio: str) -> str:
     return GRUPO_RECEBER.get(regras.mapear_convenio(convenio), GRUPO_RECEBER_FALLBACK)
 
 
-def departamento_cod(clinica: str) -> str | None:
-    """Código do Departamento OMIE (01–07) para a clínica (None se não mapeada)."""
-    return DEPARTAMENTO_COD.get(_norm_clinica(clinica))
+def clinica_pr2_pr3(clinica: str) -> bool:
+    """A clínica é a 'Maringá - Filial PR2 e PR3' (que se desdobra em PR2/PR3)?"""
+    return _norm_clinica(clinica) == _CLINICA_PR2_PR3
+
+
+def departamento(clinica: str, subunidade: str = '') -> str | None:
+    """Texto do Departamento OMIE ("01. Matriz", "07. PR3"...) para a clínica.
+
+    Na clínica "PR2 e PR3", `subunidade` ('PR3'/'PR2') decide entre "07. PR3" e
+    "07. PR2" (glaucoma/PR3 vai p/ PR3). None se a clínica não for mapeada."""
+    if clinica_pr2_pr3(clinica):
+        return '07. PR3' if (subunidade or '').upper() == 'PR3' else '07. PR2'
+    return DEPARTAMENTO.get(_norm_clinica(clinica))
 
 # Colunas (1-indexadas) no layout das planilhas OMIE; dados começam na linha 6.
 LINHA_INICIAL = 6
@@ -228,9 +240,10 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
                 pendencias.append(f'{nome_forn}: R$ {soma:.2f} em "{classe}" — classifique '
                                   f'(Cirurgia/Exame/Preceptoria) na revisão; NÃO entrou no a pagar.')
                 continue
+            dep = departamento(bloco.clinica, getattr(bloco, 'subunidade', '')) or bloco.clinica
             linhas.append({'nome': nome_forn, 'categoria': categoria, 'valor': soma,
                            'registro': dia, 'vencimento': venc, 'observacao': observacao,
-                           'departamento': departamento_cod(bloco.clinica) or bloco.clinica})
+                           'departamento': dep})
 
     # Linhas dos anestesistas (categoria própria) — uma por atendimento/dia
     for a in getattr(resultado, 'anestesistas', []):
@@ -240,11 +253,11 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
         # Observação traz o cirurgião-chefe entre parênteses (diretoria 2026-06-24):
         # "Repasse 22/06 Dra. Isabela Miwa Maeda (Dr. Rodolpho)".
         obs = f'Repasse {dia.strftime("%d/%m")} {anest}' + (f' ({cirurgiao})' if cirurgiao else '')
+        dep = departamento(a.get('clinica', ''), a.get('subunidade', '')) or a.get('clinica', '')
         linhas.append({'nome': a.get('razao_social') or a.get('anestesista'),
                        'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
                        'registro': dia, 'vencimento': venc_dia10_mes_seguinte(dia),
-                       'observacao': obs,
-                       'departamento': departamento_cod(a.get('clinica', '')) or a.get('clinica', '')})
+                       'observacao': obs, 'departamento': dep})
 
     linhas.sort(key=lambda x: (str(x['registro']), x['departamento'] or '', x['nome'], x['categoria']))
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_PAGAR)
@@ -269,6 +282,8 @@ def linhas_relatorio_pagar(resultado) -> list[dict]:
         dia = bloco.data or ref
         venc = venc_dia10_mes_seguinte(dia)
         medico = _sem_sufixo(bloco.profissional)
+        clinica = bloco.clinica or ''
+        dep = departamento(clinica, getattr(bloco, 'subunidade', '')) or clinica
         por_classe = defaultdict(float)
         for p in bloco.procedimentos:
             if p.classe == medplus.CLASSE_TAXA:
@@ -278,14 +293,16 @@ def linhas_relatorio_pagar(resultado) -> list[dict]:
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
                 por_classe[p.classe] += p.honorario
         for classe, soma in por_classe.items():
-            out.append({'medico': medico, 'clinica': bloco.clinica or '', 'classe': classe,
+            out.append({'medico': medico, 'clinica': clinica, 'departamento': dep, 'classe': classe,
                         'resumo': RESUMO_CLASSE.get(classe, classe),
                         'categoria': CATEGORIA_POR_CLASSE.get(classe, classe),
                         'valor': round(soma, 2), 'vencimento': venc.isoformat(),
                         'data': dia.isoformat()})
     for a in getattr(resultado, 'anestesistas', []):
         dia = a.get('data') or ref
-        out.append({'medico': _sem_sufixo(a.get('anestesista', '')), 'clinica': a.get('clinica', '') or '',
+        clin = a.get('clinica', '') or ''
+        out.append({'medico': _sem_sufixo(a.get('anestesista', '')), 'clinica': clin,
+                    'departamento': departamento(clin, a.get('subunidade', '')) or clin,
                     'classe': 'Anestesia', 'resumo': 'Anestesia', 'categoria': CATEGORIA_ANESTESISTA,
                     'valor': round(float(a.get('valor') or 0), 2),
                     'vencimento': venc_dia10_mes_seguinte(dia).isoformat(), 'data': dia.isoformat()})
@@ -308,13 +325,16 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
     conv_desconhecido = set()
     for bloco in resultado.blocos:
         clinica = bloco.clinica or ''
+        # Departamento (com PR2/PR3 conforme a agenda) entra na chave — PR2 e PR3 saem
+        # em linhas separadas mesmo na mesma clínica/dia/grupo.
+        dep = departamento(clinica, getattr(bloco, 'subunidade', '')) or clinica
         for p in bloco.procedimentos:
             if p.classe == medplus.CLASSE_PRECEPTORIA:
                 continue   # preceptoria é SÓ a pagar — não tem valor bruto nem avisa
             if p.valor is None:
                 sem_valor += 1
                 continue
-            grupos[(bloco.data, clinica, grupo_receber(p.convenio))] += p.valor
+            grupos[(bloco.data, clinica, dep, grupo_receber(p.convenio))] += p.valor
             # convênio que não casa em nenhum grupo (e não é taxa de sala) vai p/
             # PARTICULARES por padrão, mas avisa — igual ao "a definir" do a pagar.
             if p.classe != medplus.CLASSE_TAXA and regras.mapear_convenio(p.convenio) is None:
@@ -332,13 +352,13 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
                           'receber; confirme a categoria (SUS / CISAMUSEP / PARTICULARES).')
 
     linhas = []
-    for (dia, clinica, grupo), soma in sorted(grupos.items(),
-                                              key=lambda kv: (str(kv[0][0]), kv[0][1], kv[0][2])):
+    for (dia, clinica, dep, grupo), soma in sorted(grupos.items(),
+                                                   key=lambda kv: (str(kv[0][0]), kv[0][2], kv[0][3])):
         d = dia or ref
         rotulo = f' {clinica}' if clinica else ''
         linhas.append({'nome': cnpj_filial(clinica) or CLIENTE_RECEBER, 'categoria': grupo,
                        'valor': soma, 'registro': d, 'vencimento': venc_dia10_mes_seguinte(d),
                        'observacao': f'Recebimento {d.strftime("%d/%m")}{rotulo} — {grupo}',
-                       'departamento': departamento_cod(clinica) or clinica})
+                       'departamento': dep})
     conteudo, n = _escrever(modelo_path, linhas, COL_DEPARTAMENTO_RECEBER)
     return ResultadoSaida('OMIE_Contas_a_Receber.xlsx', conteudo, n, pendencias)
