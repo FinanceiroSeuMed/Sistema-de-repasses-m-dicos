@@ -28,4 +28,6 @@ urlpatterns = [
     path('correcoes/', views.correcoes_lista, name='correcoes'),
     path('correcoes/<int:pk>/ligar/', views.correcao_toggle, name='correcao_toggle'),
     path('correcoes/<int:pk>/remover/', views.correcao_remover, name='correcao_remover'),
+    path('classes/<int:pk>/ligar/', views.classe_toggle, name='classe_toggle'),
+    path('classes/<int:pk>/remover/', views.classe_remover, name='classe_remover'),
 ]

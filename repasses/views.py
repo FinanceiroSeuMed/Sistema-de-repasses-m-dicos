@@ -11,8 +11,8 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ImportarMedPlusForm
-from .models import (ArquivoSaida, CorrecaoMemorizada, Lote, Medico, RegraRepasse,
-                     Repasse, RepasseRascunho)
+from .models import (ArquivoSaida, ClasseMemorizada, CorrecaoMemorizada, Lote, Medico,
+                     RegraRepasse, Repasse, RepasseRascunho)
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -235,7 +235,10 @@ def _marcar_taxas_sala(resultado):
     são desconsideradas no repasse. (Antes eram removidas da revisão.)"""
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
-            if p.classe == medplus.CLASSE_TAXA:
+            # Taxa de sala é identificada pelo CONVÊNIO (igual ao medplus.classificar) —
+            # assim, mesmo que a memória por procedimento tenha mexido na classe, a
+            # linha continua reconhecida como taxa. (Diretoria 2026-06-26.)
+            if p.classe == medplus.CLASSE_TAXA or 'taxa' in regras.normalizar(p.convenio):
                 # Respeita um valor já vindo de correção memorizada (correcoes.aplicar
                 # roda antes): só deixa "em aberto" quem ainda não tem valor.
                 if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
@@ -286,6 +289,9 @@ def _ler_e_processar(caminho, nome=''):
         # Correções memorizadas: reaplicam ajustes manuais salvos em meses anteriores
         # (livro resolve o médico pelo cadastro p/ a correção por-médico casar)
         correcoes.aplicar(resultado, livro)
+        # Classe memorizada por procedimento (vale p/ todos os médicos) — reaplica a
+        # classificação que a diretoria já definiu antes. (Diretoria 2026-06-26.)
+        correcoes.aplicar_classes(resultado)
         # Residentes não recebem -> não aparecem no preview nem na exportação
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
@@ -294,6 +300,11 @@ def _ler_e_processar(caminho, nome=''):
         _marcar_taxas_sala(resultado)
     _limpar_linhas(resultado)
     _indexar(resultado)
+    # Guarda a classe SUGERIDA (após regras + memória) p/ detectar quando o usuário
+    # muda a classe e, então, memorizar a nova classificação.
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            p.classe_sugerida = p.classe
     resultado.medicos_novos = _medicos_desconhecidos(resultado, livro)
     return resultado, aviso
 
@@ -950,6 +961,7 @@ def exportar(request):
             return render(request, 'repasses/revisao.html', ctx)
 
     info = _memorizar_correcoes(resultado, request.POST)
+    info += _memorizar_classes(resultado, request.POST)
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
@@ -1001,6 +1013,46 @@ def _memorizar_correcoes(resultado, post):
     plural = 'correção memorizada' if salvos == 1 else 'correções memorizadas'
     return [f'✓ {salvos} {plural} (por médico) — serão reaplicadas automaticamente nos '
             'próximos meses. Veja em "Correções memorizadas".']
+
+
+def _memorizar_classes(resultado, post):
+    """Memoriza a CLASSE de um procedimento quando a diretoria a define/muda na
+    revisão. A classe é intrínseca ao procedimento, então vale para TODOS os médicos
+    e é reaplicada em todos os lançamentos futuros desse procedimento. (Diretoria
+    2026-06-26.) Devolve mensagens informativas."""
+    salvos = set()
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            # Pula sintéticas, status com fluxo próprio (catarata/componente) e taxas
+            # de sala (classe vem do convênio) — alinhado com correcoes.aplicar_classes.
+            if (getattr(p, 'sintetica', False)
+                    or getattr(p, 'status_calculo', None) in correcoes._NAO_SOBRESCREVER
+                    or 'taxa' in regras.normalizar(p.convenio)):
+                continue
+            sug = getattr(p, 'classe_sugerida', None)
+            classe = (p.classe or '').strip()
+            # Só memoriza quando o usuário MUDA a classe (difere da sugerida).
+            if not (sug is not None and classe and classe != medplus.CLASSE_INDEFINIDA
+                    and classe != sug):
+                continue
+            chave = regras.normalizar(p.procedimento)
+            if not chave or chave in salvos:
+                continue
+            # NÃO re-memoriza nem REATIVA uma classe já guardada com o MESMO valor:
+            # reabrir/re-exportar um lote antigo não deve mexer na memória nem
+            # ressuscitar uma classe que a diretoria desligou. (Diretoria 2026-06-26.)
+            ja = ClasseMemorizada.objects.filter(proc_norm=chave).first()
+            if ja is not None and ja.classe == classe:
+                continue
+            correcoes.memorizar_classe(p.procedimento, classe,
+                                       origem=(resultado.unidade or '')[:180])
+            salvos.add(chave)
+    if not salvos:
+        return []
+    n = len(salvos)
+    plural = 'classe memorizada' if n == 1 else 'classes memorizadas'
+    return [f'✓ {n} {plural} por procedimento — a mesma classe será aplicada '
+            'automaticamente nos próximos lançamentos desse procedimento.']
 
 
 def _gerar_arquivos_por_dia(resultado):
@@ -1397,10 +1449,13 @@ def lote_excluir(request, pk):
 def correcoes_lista(request):
     """Lista as correções memorizadas — a memória de ajustes do sistema."""
     itens = list(CorrecaoMemorizada.objects.all())
+    classes = list(ClasseMemorizada.objects.all())
     return render(request, 'repasses/correcoes.html', {
         'correcoes': itens,
         'total': len(itens),
         'ativas': sum(1 for c in itens if c.ativo),
+        'classes': classes,
+        'classes_ativas': sum(1 for c in classes if c.ativo),
     })
 
 
@@ -1417,6 +1472,22 @@ def correcao_remover(request, pk):
     """Remove definitivamente uma correção memorizada."""
     if request.method == 'POST':
         CorrecaoMemorizada.objects.filter(pk=pk).delete()
+    return redirect('repasses:correcoes')
+
+
+def classe_toggle(request, pk):
+    """Liga/desliga uma classe memorizada (procedimento -> classe)."""
+    if request.method == 'POST':
+        c = get_object_or_404(ClasseMemorizada, pk=pk)
+        c.ativo = not c.ativo
+        c.save()
+    return redirect('repasses:correcoes')
+
+
+def classe_remover(request, pk):
+    """Remove definitivamente uma classe memorizada."""
+    if request.method == 'POST':
+        ClasseMemorizada.objects.filter(pk=pk).delete()
     return redirect('repasses:correcoes')
 
 

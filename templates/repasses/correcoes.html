@@ -16,9 +16,47 @@
 </section>
 
 <section class="cards-indicadores">
-    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Correções</span></div>
-    <div class="card-indicador"><span class="numero">{{ ativas }}</span><span class="rotulo">Ativas</span></div>
+    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Honorários</span></div>
+    <div class="card-indicador"><span class="numero">{{ ativas }}</span><span class="rotulo">Ativos</span></div>
+    <div class="card-indicador"><span class="numero">{{ classes|length }}</span><span class="rotulo">Classes</span></div>
+    <div class="card-indicador"><span class="numero">{{ classes_ativas }}</span><span class="rotulo">Ativas</span></div>
 </section>
+
+{% if classes %}
+<section class="bloco-medico">
+    <h2>Classes memorizadas <small class="nota">(procedimento → classe, vale para todos os médicos)</small></h2>
+    <table class="tabela">
+        <thead>
+            <tr><th>Procedimento</th><th>Classe</th><th>Origem</th><th>Situação</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+            {% for c in classes %}
+            <tr{% if not c.ativo %} class="linha-inativa"{% endif %}>
+                <td>{{ c.procedimento }}</td>
+                <td><span class="badge badge-{{ c.classe|slug_classe }}">{{ c.classe }}</span></td>
+                <td><small>{{ c.origem|default:"—" }}</small></td>
+                <td>{% if c.ativo %}<span class="badge badge-ok">Ativa</span>{% else %}<span class="badge badge-zero">Desligada</span>{% endif %}</td>
+                <td>
+                    <div class="acoes-linha">
+                        <form method="post" action="{% url 'repasses:classe_toggle' c.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="botao botao-mini">{% if c.ativo %}Desligar{% else %}Ligar{% endif %}</button>
+                        </form>
+                        <form method="post" action="{% url 'repasses:classe_remover' c.pk %}"
+                              onsubmit="return confirm('Remover esta classe memorizada?');">
+                            {% csrf_token %}
+                            <button type="submit" class="botao botao-mini botao-perigo">Remover</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="nota">Ao classificar um procedimento na revisão, a classe é lembrada aqui e reaplicada
+        automaticamente em todos os lançamentos futuros desse procedimento.</p>
+</section>
+{% endif %}
 
 {% if correcoes %}
 <section class="bloco-medico">

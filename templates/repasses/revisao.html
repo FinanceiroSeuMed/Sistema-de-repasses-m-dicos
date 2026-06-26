@@ -169,7 +169,7 @@
             <span class="campo-inline">
                 <select name="anest_nome_{{ forloop.counter0 }}" data-campo="anest_nome_{{ forloop.counter0 }}"
                         class="inp-classe campo-obrig{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} precisa-verificar{% endif %}">
-                    <option value="__verificar__"{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} selected{% endif %}>— a verificar —</option>
+                    <option value="__verificar__"{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} selected{% endif %}>-</option>
                     <option value="__sem__"{% if bloco.sel_anest_nome == '__sem__' %} selected{% endif %}>— sem anestesista —</option>
                     {% for a in anestesistas %}<option value="{{ a.nome }}"{% if a.nome == bloco.sel_anest_nome %} selected{% endif %}>{{ a.nome }}</option>{% endfor %}
                 </select>
@@ -200,8 +200,7 @@
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
                         {% if p.sintetica and p.editavel %}
-                        {# Linha do ASSISTENTE: campo editável; valor pré-calculado em cinza
-                           (placeholder) — se não preencher, o sistema usa esse valor. #}
+                        {# Assistente: campo editável; valor pré-calculado em cinza (placeholder). #}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
                                value="{{ p.sel_hon|default:'' }}" placeholder="{{ p.fellow_calc|valor2 }}"
                                data-exato="{{ p.honorario|valor_exato }}"
@@ -216,8 +215,7 @@
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
                             <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
                         </select>
-                        {# CIRURGIÃO: uma única linha — campo editável com o valor pré-calculado
-                           em cinza (placeholder). Vazio -> usa o cálculo. #}
+                        {# Cirurgião: campo único editável; valor pré-calculado em cinza (placeholder). #}
                         <input type="text" class="inp-hon" name="cat_chefe_{{ p.idx }}"
                                value="{{ p.sel_cat_chefe|default:'' }}"
                                placeholder="{% if p.chefe_calc %}{{ p.chefe_calc|valor2 }}{% else %}declare a forma{% endif %}"
@@ -246,7 +244,7 @@
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select name="cat_fellow_{{ p.idx }}" data-campo="cat_fellow_{{ p.idx }}"
                                 class="inp-classe campo-obrig{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} precisa-verificar{% endif %}">
-                            <option value="__verificar__"{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} selected{% endif %}>fellow? a verificar</option>
+                            <option value="__verificar__"{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} selected{% endif %}>-</option>
                             <option value="__sem__"{% if p.sel_cat_fellow == '__sem__' %} selected{% endif %}>sem fellow</option>
                             {% for f in fellows %}<option value="{{ f.nome }}"{% if f.nome == p.sel_cat_fellow %} selected{% endif %}>{{ f.nome }}</option>{% endfor %}
                         </select>
@@ -254,7 +252,8 @@
                         <select name="classe_{{ p.idx }}" data-campo="classe_{{ p.idx }}"
                                 class="inp-classe{% if p.classe == classe_indefinida and p.honorario %} campo-obrig precisa-verificar{% endif %}">
                             {% for c in classes %}
-                            <option value="{{ c }}"{% if c == p.classe %} selected{% endif %}>{{ c }}</option>
+                            {# "A classificar" aparece como "-" (pré-seleção obrigatória a preencher) #}
+                            <option value="{{ c }}"{% if c == p.classe %} selected{% endif %}>{% if c == classe_indefinida %}-{% else %}{{ c }}{% endif %}</option>
                             {% endfor %}
                         </select>
                         {% endif %}

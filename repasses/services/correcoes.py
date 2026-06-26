@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from ..models import CorrecaoMemorizada
+from ..models import ClasseMemorizada, CorrecaoMemorizada
 from .regras import normalizar
 
 _RE_SUFIXO = re.compile(r'\s*\([^)]*\)\s*$')
@@ -86,6 +86,42 @@ def aplicar(resultado, livro=None) -> int:
             p.motivo_calculo = f'Correção memorizada (salva em {c.criado_em:%d/%m/%Y}).'
             n += 1
     return n
+
+
+def aplicar_classes(resultado) -> int:
+    """Reaplica a classe memorizada de cada procedimento (vale para TODOS os médicos).
+
+    A classificação é intrínseca ao procedimento — então, diferente do honorário,
+    casa só pelo nome do procedimento (qualquer médico/convênio). Roda no
+    processamento, ANTES da revisão, para o procedimento já vir classificado."""
+    ativos = list(ClasseMemorizada.objects.filter(ativo=True))
+    if not ativos:
+        return 0
+    index = {c.proc_norm: c.classe for c in ativos}
+    n = 0
+    for bloco in resultado.blocos:
+        for p in bloco.procedimentos:
+            # Taxa de sala é definida pelo CONVÊNIO (não pelo nome): a memória por
+            # procedimento não pode reescrever a classe dessas linhas, senão o
+            # _marcar_taxas_sala deixa de reconhecê-las. (Diretoria 2026-06-26.)
+            if (p.status_calculo in _NAO_SOBRESCREVER
+                    or 'taxa' in normalizar(p.convenio)):
+                continue
+            classe = index.get(normalizar(p.procedimento))
+            if classe and p.classe != classe:
+                p.classe = classe
+                n += 1
+    return n
+
+
+def memorizar_classe(procedimento, classe, *, origem=''):
+    """Cria/atualiza a classe memorizada de um procedimento (upsert por nome)."""
+    obj, _criado = ClasseMemorizada.objects.update_or_create(
+        proc_norm=normalizar(procedimento),
+        defaults={'procedimento': procedimento, 'classe': classe,
+                  'ativo': True, 'origem': origem},
+    )
+    return obj
 
 
 def memorizar(procedimento, convenio, valor, *, medico='', tipo=CorrecaoMemorizada.TIPO_FIXO,

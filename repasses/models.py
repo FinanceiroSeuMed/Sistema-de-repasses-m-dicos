@@ -136,6 +136,37 @@ class CorrecaoMemorizada(models.Model):
         return f'{self.procedimento} / {alvo}'
 
 
+class ClasseMemorizada(models.Model):
+    """Classe fixada de um PROCEDIMENTO — vale para TODOS os médicos.
+
+    A classificação é intrínseca ao procedimento (uma "Retirada de Corpo Estranho"
+    é "Exames e Consultas" independente de quem fez). Quando a diretoria classifica
+    um procedimento na revisão, o sistema lembra e reaplica a MESMA classe em todos
+    os lançamentos futuros desse procedimento — automaticamente, sem refazer.
+    (Diferente de [[CorrecaoMemorizada]], que é o HONORÁRIO, por médico.)"""
+
+    procedimento = models.CharField('Procedimento', max_length=255)
+    proc_norm = models.CharField(max_length=255, editable=False, db_index=True, unique=True)
+    classe = models.CharField('Classe', max_length=40)
+    ativo = models.BooleanField('Ativa', default=True)
+    origem = models.CharField('Origem', max_length=200, blank=True)
+    criado_em = models.DateTimeField('Criada em', auto_now_add=True)
+    atualizado_em = models.DateTimeField('Atualizada em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Classe memorizada'
+        verbose_name_plural = 'Classes memorizadas'
+        ordering = ['procedimento']
+
+    def save(self, *args, **kwargs):
+        from .services.regras import normalizar
+        self.proc_norm = normalizar(self.procedimento)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.procedimento} → {self.classe}'
+
+
 class RegraRepasse(models.Model):
     """Regra de honorário por procedimento — geridas DENTRO do sistema (antes vinham
     só da planilha). Cada coluna é o valor para um pagador.

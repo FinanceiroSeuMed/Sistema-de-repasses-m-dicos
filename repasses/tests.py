@@ -548,6 +548,74 @@ class SeedNomeTests(SimpleTestCase):
         self.assertEqual(_corrigir_nome('Dr. Rodolpho'), 'Dr. Rodolpho')   # inalterado
 
 
+class ClasseMemorizadaTests(TestCase):
+    """Classe memorizada por procedimento (global, todos os médicos)."""
+
+    def _linha(self, proc, classe, sugerida):
+        from types import SimpleNamespace
+        p = medplus.Procedimento(None, '', 'Pac', proc, 'Particular', 1, 100, None)
+        p.classe = classe; p.classe_sugerida = sugerida
+        p.honorario = 20.0; p.status_calculo = 'calculado'
+        b = medplus.BlocoMedico(profissional='Dr. X'); b.procedimentos = [p]
+        return SimpleNamespace(blocos=[b], unidade=''), p
+
+    def test_memoriza_quando_classifica(self):
+        from repasses import views
+        from repasses.models import ClasseMemorizada
+        rel, p = self._linha('Retirada de Corpo Estranho', 'Exames e Consultas',
+                             medplus.CLASSE_INDEFINIDA)
+        self.assertTrue(views._memorizar_classes(rel, {}))
+        c = ClasseMemorizada.objects.get(proc_norm=regras.normalizar('Retirada de Corpo Estranho'))
+        self.assertEqual(c.classe, 'Exames e Consultas')
+
+    def test_nao_memoriza_sem_mudanca(self):
+        from repasses import views
+        from repasses.models import ClasseMemorizada
+        rel, p = self._linha('Consulta', 'Exames e Consultas', 'Exames e Consultas')
+        views._memorizar_classes(rel, {})
+        self.assertEqual(ClasseMemorizada.objects.count(), 0)
+
+    def test_aplicar_reaplica_para_qualquer_medico(self):
+        from types import SimpleNamespace
+        from repasses.services import correcoes
+        correcoes.memorizar_classe('Laudo Especial', 'Exames e Consultas')
+        p = medplus.Procedimento(None, '', '', 'Laudo Especial', 'SUS', 1, 100, None)
+        p.classe = medplus.CLASSE_INDEFINIDA; p.status_calculo = 'calculado'
+        b = medplus.BlocoMedico(profissional='Dra. Outra'); b.procedimentos = [p]
+        n = correcoes.aplicar_classes(SimpleNamespace(blocos=[b]))
+        self.assertEqual(n, 1)
+        self.assertEqual(p.classe, 'Exames e Consultas')   # vale p/ qualquer médico
+
+    def test_nao_reativa_classe_desligada(self):
+        # Re-exportar um lote antigo NÃO pode ressuscitar uma classe que foi desligada.
+        from repasses import views
+        from repasses.models import ClasseMemorizada
+        ClasseMemorizada.objects.create(procedimento='Proc X', classe='Exames e Consultas',
+                                        ativo=False)
+        rel, p = self._linha('Proc X', 'Exames e Consultas', medplus.CLASSE_INDEFINIDA)
+        views._memorizar_classes(rel, {})
+        self.assertFalse(ClasseMemorizada.objects.get(procedimento='Proc X').ativo)
+
+    def test_taxa_de_sala_nao_memoriza_nem_sobrescreve(self):
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.models import ClasseMemorizada
+        from repasses.services import correcoes
+        # memória global remapeando o MESMO nome p/ cirurgia
+        correcoes.memorizar_classe('Sala Especial', 'Cirurgias e Procedimentos')
+        # linha de TAXA (convênio "Taxas De Sala") com o mesmo nome
+        p = medplus.Procedimento(None, '', '', 'Sala Especial', 'Taxas De Sala', 1, 0, None)
+        p.classe = medplus.CLASSE_TAXA; p.status_calculo = 'a_definir'
+        b = medplus.BlocoMedico(profissional='Dr. Z'); b.procedimentos = [p]
+        rel = SimpleNamespace(blocos=[b], unidade='')
+        correcoes.aplicar_classes(rel)
+        self.assertEqual(p.classe, medplus.CLASSE_TAXA)      # NÃO sobrescreveu a taxa
+        p.classe_sugerida = medplus.CLASSE_TAXA; p.classe = 'Cirurgias e Procedimentos'
+        antes = ClasseMemorizada.objects.count()
+        views._memorizar_classes(rel, {})
+        self.assertEqual(ClasseMemorizada.objects.count(), antes)  # taxa não vira memória
+
+
 class ReginaTests(SimpleTestCase):
     """Dra. Regina: valor por faixa + distinção indivíduo x equipe."""
 
