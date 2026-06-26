@@ -16,14 +16,14 @@
     {% csrf_token %}
     <input type="hidden" name="token" value="{{ token }}">
     <section class="acoes-exportar">
-        <button type="submit" formaction="{% url 'repasses:exportar' %}" class="botao botao-primario">⬇ Exportar os arquivos</button>
-        <button type="submit" formaction="{% url 'repasses:revisar' %}" class="botao botao-secundario">✏ Voltar à revisão (editar)</button>
+        <button type="submit" formaction="{% url 'repasses:exportar' %}" class="botao botao-primario">Exportar os arquivos</button>
+        <button type="submit" formaction="{% url 'repasses:revisar' %}" class="botao botao-secundario">Voltar à revisão (editar)</button>
     </section>
 </form>
 
 {% if pendencias %}
 <section class="pendencias pendencias-topo">
-    <h3>⚠️ {{ pendencias|length }} pendência(s) — resolva na revisão antes de exportar</h3>
+    <h3>{{ pendencias|length }} pendência(s) — resolva na revisão antes de exportar</h3>
     <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
@@ -84,7 +84,7 @@
 <section class="bloco-medico bloco-anestesista">
     <div class="bloco-cabecalho">
         <div>
-            <h2>🔵 {{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}</h2>
+            <h2>{{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}</h2>
             <span class="razao">Anestesia — cirurgião: {{ a.cirurgiao }}{% if a.horas %} · +{{ a.horas }}h extra{% endif %}</span>
         </div>
         <div class="bloco-badges"><span class="badge badge-cirurgia">Repasse: {{ a.valor|moeda }}</span></div>

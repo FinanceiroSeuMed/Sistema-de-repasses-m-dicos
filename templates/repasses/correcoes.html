@@ -17,14 +17,12 @@
 
 <section class="cards-indicadores">
     <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Honorários</span></div>
-    <div class="card-indicador"><span class="numero">{{ ativas }}</span><span class="rotulo">Ativos</span></div>
     <div class="card-indicador"><span class="numero">{{ classes|length }}</span><span class="rotulo">Classes</span></div>
-    <div class="card-indicador"><span class="numero">{{ classes_ativas }}</span><span class="rotulo">Ativas</span></div>
 </section>
 
 {% if classes %}
 <section class="bloco-medico">
-    <h2>Classes memorizadas <small class="nota">(procedimento → classe, vale para todos os médicos)</small></h2>
+    <h2>Classes memorizadas <small class="nota">(procedimento classe, vale para todos os médicos)</small></h2>
     <table class="tabela">
         <thead>
             <tr><th>Procedimento</th><th>Classe</th><th>Origem</th><th>Situação</th><th>Ações</th></tr>

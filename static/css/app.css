@@ -313,8 +313,22 @@ select.precisa-verificar, .campo-erro { outline: 2px solid #e8b008; outline-offs
 .bloqueio-duplicado li, .bloqueio-duplicado .pendencias-dica { color: #7a1f1f; }
 .bloqueio-duplicado button { margin-top: 10px; }
 
-.tabela { width: 100%; border-collapse: collapse; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; overflow: hidden; box-shadow: var(--sombra); }
-.tabela th, .tabela td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--cinza-borda); }
+/* table-layout: fixed -> colunas ESTÁVEIS: o conteúdo longo quebra a linha em vez
+   de empurrar/desalinhar as colunas (mesmo padrão em todas as tabelas do sistema). */
+.tabela { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; overflow: hidden; box-shadow: var(--sombra); }
+.tabela th, .tabela td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--cinza-borda); overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+/* Larguras fixas da tabela de revisão (10 colunas) — todas as tabelas dos médicos
+   ficam alinhadas entre si. */
+.tabela-revisao th:nth-child(1), .tabela-revisao td:nth-child(1) { width: 8%; }
+.tabela-revisao th:nth-child(2), .tabela-revisao td:nth-child(2) { width: 5%; }
+.tabela-revisao th:nth-child(3), .tabela-revisao td:nth-child(3) { width: 15%; }
+.tabela-revisao th:nth-child(4), .tabela-revisao td:nth-child(4) { width: 20%; }
+.tabela-revisao th:nth-child(5), .tabela-revisao td:nth-child(5) { width: 11%; }
+.tabela-revisao th:nth-child(6), .tabela-revisao td:nth-child(6) { width: 5%; }
+.tabela-revisao th:nth-child(7), .tabela-revisao td:nth-child(7) { width: 9%; }
+.tabela-revisao th:nth-child(8), .tabela-revisao td:nth-child(8) { width: 13%; }
+.tabela-revisao th:nth-child(9), .tabela-revisao td:nth-child(9) { width: 7%; }
+.tabela-revisao th:nth-child(10), .tabela-revisao td:nth-child(10) { width: 7%; }
 .tabela thead th { background: #f7f9fc; color: var(--texto-suave); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .3px; }
 .tabela tbody tr:hover { background: #f9fbfd; }
 .tabela .num { text-align: right; white-space: nowrap; }

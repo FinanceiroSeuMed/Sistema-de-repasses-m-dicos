@@ -15,9 +15,9 @@
 
 {# Caixa de pendências flutuante à esquerda — atualiza em tempo real (sem Salvar). #}
 <aside id="painel-pendencias" class="painel-pendencias" hidden>
-    <h4>⚠️ Faltam <span class="pend-conta">0</span></h4>
+    <h4>Faltam <span class="pend-conta">0</span></h4>
     <ul class="pend-lista"></ul>
-    <p class="pend-vazio" hidden>✓ Tudo preenchido — pode exportar.</p>
+    <p class="pend-vazio" hidden>Tudo preenchido — pode exportar.</p>
 </aside>
 
 {% for msg in avisos %}<div class="alerta alerta-aviso">{{ msg }}</div>{% endfor %}
@@ -26,14 +26,14 @@
 {# Avisos da exportação (o que NÃO entrou na OMIE) — só aparecem no resultado do export. #}
 {% if pendencias and downloads %}
 <section class="pendencias pendencias-topo">
-    <h3>⚠️ Confira ({{ pendencias|length }})</h3>
+    <h3>Confira ({{ pendencias|length }})</h3>
     <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 
 {% if bloqueio_duplicado %}
 <section class="pendencias pendencias-topo bloqueio-duplicado">
-    <h3>⛔ Exportação bloqueada — possível lote DUPLICADO</h3>
+    <h3>Exportação bloqueada — possível lote DUPLICADO</h3>
     <ul>{% for m in bloqueio_duplicado %}<li>{{ m }}</li>{% endfor %}</ul>
     <p class="pendencias-dica">Estes atendimentos (mesmo período) já saíram em outro lote — confira para
         <strong>não pagar 2×</strong>. Se tiver CERTEZA de que não é duplicado, confirme abaixo.</p>
@@ -48,16 +48,16 @@
 
 {% if lembretes_regina %}
 <div class="alerta alerta-ok" style="border-color:#b6e3cd">
-    💵 <strong>Dra. Regina — pagar em dinheiro (fora da OMIE):</strong>
-    {% for r in lembretes_regina %}<br>{{ r.dia }}: {{ r.n }} cirurgia(s) → <strong>{{ r.valor|moeda }}</strong>{% endfor %}
+    <strong>Dra. Regina — pagar em dinheiro (fora da OMIE):</strong>
+    {% for r in lembretes_regina %}<br>{{ r.dia }}: {{ r.n }} cirurgia(s) <strong>{{ r.valor|moeda }}</strong>{% endfor %}
 </div>
 {% endif %}
 
 {% if medicos_novos %}
 <section class="medicos-novos">
-    <h3>🆕 {{ medicos_novos|length }} médico(s) novo(s) — classifique antes de exportar</h3>
+    <h3>{{ medicos_novos|length }} médico(s) novo(s) — classifique antes de exportar</h3>
     <p class="nota">Estes profissionais ainda não estão no cadastro. Escolha a <strong>categoria</strong>
-        de cada um (o sistema nunca assume) e ajuste os campos se necessário. ⚠️ Cadastre <strong>antes</strong>
+        de cada um (o sistema nunca assume) e ajuste os campos se necessário. Cadastre <strong>antes</strong>
         de editar/Salvar os valores abaixo — este formulário recarrega a revisão.</p>
     <form method="post" action="{% url 'repasses:cadastrar_medicos' %}">
         {% csrf_token %}
@@ -88,7 +88,7 @@
                 {% endfor %}
             </tbody>
         </table>
-        <p style="margin-top:12px"><button type="submit" class="botao botao-download">💾 Cadastrar e reprocessar</button></p>
+        <p style="margin-top:12px"><button type="submit" class="botao botao-download">Cadastrar e reprocessar</button></p>
     </form>
 </section>
 {% endif %}
@@ -113,8 +113,8 @@
 {% if downloads %}
 <section class="saidas">
     <div class="bloco-cabecalho">
-        <h2>✅ Arquivos gerados</h2>
-        {% if lote_id %}<a class="botao botao-download" href="{% url 'repasses:baixar_lote_zip' lote_id %}">🗜 Baixar tudo (.zip)</a>{% endif %}
+        <h2>Arquivos gerados</h2>
+        {% if lote_id %}<a class="botao botao-download" href="{% url 'repasses:baixar_lote_zip' lote_id %}">Baixar tudo (.zip)</a>{% endif %}
     </div>
     <p class="nota">Os arquivos <strong>OMIE</strong> são para importar; os <strong>repasses</strong>
         (Excel + PDF) saem um por médico. Residentes e linhas R$ 0,00 não entram.</p>
@@ -124,7 +124,7 @@
         <h4>{{ g.grouper }}</h4>
         <div class="saidas-botoes">
             {% for d in g.list %}
-            <a class="botao botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">⬇ {{ d.arquivo }}</a>
+            <a class="botao botao-download" href="{% url 'repasses:baixar_saida' pasta_saida d.arquivo %}">{{ d.arquivo }}</a>
             {% endfor %}
         </div>
     </div>
@@ -137,8 +137,8 @@
     <input type="hidden" name="token" value="{{ token }}">
 
     <section class="acoes-exportar">
-        <button type="submit" formaction="{% url 'repasses:visualizar' %}" class="botao botao-secundario-escuro">👁 Visualizar (sem gerar arquivo)</button>
-        <button type="submit" formaction="{% url 'repasses:salvar' %}" class="botao botao-secundario-escuro">💾 Salvar alterações</button>
+        <button type="submit" formaction="{% url 'repasses:visualizar' %}" class="botao botao-secundario-escuro">Visualizar (sem gerar arquivo)</button>
+        <button type="submit" formaction="{% url 'repasses:salvar' %}" class="botao botao-secundario-escuro">Salvar alterações</button>
         <span class="dica">Use o botão <strong>Exportar</strong> (canto inferior direito) para gerar os arquivos. As alterações ficam guardadas (clique em <strong>Salvar</strong>) até você importar um novo repasse.</span>
     </section>
 
@@ -156,11 +156,11 @@
             </div>
         </div>
 
-        {% if bloco.lembrete %}<div class="alerta alerta-info">📌 {{ bloco.lembrete }}</div>{% endif %}
+        {% if bloco.lembrete %}<div class="alerta alerta-info">{{ bloco.lembrete }}</div>{% endif %}
 
         {% if bloco.preceptoria_valor %}
         <div class="anestesista-box">
-            <strong>📘 Preceptoria semanal</strong>
+            <strong>Preceptoria semanal</strong>
             <span class="campo-inline">valor R$
                 <input type="text" name="preceptoria_{{ forloop.counter0 }}" class="inp-anest"
                        value="{{ bloco.sel_preceptoria }}"
@@ -172,7 +172,7 @@
 
         {% if bloco.equipe_keiti %}
         <div class="anestesista-box">
-            <strong>👥 Agenda "Equipe Dr. Keiti" — os lançamentos vão para:</strong>
+            <strong>Agenda "Equipe Dr. Keiti" — os lançamentos vão para:</strong>
             <span class="campo-inline">
                 <select name="equipe_destino_{{ forloop.counter0 }}" data-campo="equipe_destino_{{ forloop.counter0 }}"
                         data-pendencia="Destino da agenda Equipe Dr. Keiti"
@@ -187,7 +187,7 @@
 
         {% if bloco.tem_cirurgia and not bloco.participacao %}
         <div class="anestesista-box">
-            <strong>🔵 Houve anestesista nesta cirurgia?</strong>
+            <strong>Houve anestesista nesta cirurgia?</strong>
             <span class="campo-inline">
                 <select name="anest_nome_{{ forloop.counter0 }}" data-campo="anest_nome_{{ forloop.counter0 }}"
                         data-pendencia="Anestesista — {{ bloco.profissional }}"
@@ -201,7 +201,7 @@
         </div>
         {% endif %}
 
-        <table class="tabela">
+        <table class="tabela tabela-revisao">
             <thead>
                 <tr>
                     <th>Data</th><th>Hora</th><th>Paciente</th><th>Procedimento</th><th>Convênio</th>
@@ -304,7 +304,7 @@
     <section class="bloco-medico bloco-anestesista">
         <div class="bloco-cabecalho">
             <div>
-                <h2>🔵 {{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}{% if a.clinica %} <span class="dia-bloco">· {{ a.clinica }}</span>{% endif %}</h2>
+                <h2>{{ a.anestesista }}{% if a.data %} <span class="dia-bloco">— {{ a.data|date:"d/m/Y" }}</span>{% endif %}{% if a.clinica %} <span class="dia-bloco">· {{ a.clinica }}</span>{% endif %}</h2>
                 <span class="razao">Repasse de anestesia — cirurgião: {{ a.cirurgiao }}</span>
             </div>
             <div class="bloco-badges">
@@ -337,7 +337,7 @@
 {# Botão flutuante de exportar — sempre visível no canto inferior direito #}
 <button type="submit" form="form-revisao" formaction="{% url 'repasses:exportar' %}"
         class="botao botao-primario fab-exportar" title="Gerar os arquivos">
-    ⬇ {% if downloads %}Reexportar{% else %}Exportar{% endif %}
+    {% if downloads %}Reexportar{% else %}Exportar{% endif %}
 </button>
 
 {# Modal: para quais médicos a correção memorizada deve valer #}
@@ -407,7 +407,7 @@
                 nomes.push(m.value);
             }
         });
-        resumoDe(atual.dataset.idx).textContent = nomes.length > 1 ? ('✓ ' + nomes.length + ' médicos') : '✓ só este médico';
+        resumoDe(atual.dataset.idx).textContent = nomes.length > 1 ? ('' + nomes.length + ' médicos') : 'só este médico';
         fechar();
     }
     chkTodos.addEventListener('change', function () {

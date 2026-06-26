@@ -62,9 +62,7 @@ def medicos(request):
     contexto = {
         'grupos': grupos,
         'total': len(todos),
-        'total_fellows': sum(1 for m in todos if m.eh_fellow),
-        'total_anestesistas': sum(1 for m in todos if m.eh_anestesista),
-        'total_preceptores': sum(1 for m in todos if m.eh_preceptor),
+        'total_ativos': sum(1 for m in todos if m.ativo),
     }
     return render(request, 'repasses/medicos.html', contexto)
 

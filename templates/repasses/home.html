@@ -5,21 +5,18 @@
 {% block content %}
 {% if edicao_em_andamento %}
 <div class="alerta alerta-info" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <span>📝 Você tem um repasse <strong>em edição</strong> — suas alterações ficam guardadas até exportar ou importar outro arquivo.</span>
-    <a class="botao botao-download" href="{% url 'repasses:continuar_edicao' %}">Continuar edição →</a>
+    <span>Você tem um repasse <strong>em edição</strong> — suas alterações ficam guardadas até exportar ou importar outro arquivo.</span>
+    <a class="botao botao-download" href="{% url 'repasses:continuar_edicao' %}">Continuar edição</a>
 </div>
 {% endif %}
-<section class="hero">
+
+<section class="pagina-cabecalho">
     <h1>Sistema de Repasses Médicos</h1>
-    <p class="subtitulo">
+    <p class="subtitulo-escuro">
         Plataforma central para apurar honorários, gerar os arquivos de importação
         da OMIE (contas a pagar e a receber) e emitir o repasse para conferência
         do médico — tudo a partir de uma única fonte da verdade.
     </p>
-    <div class="hero-acoes">
-        <a class="botao botao-primario" href="{% url 'repasses:importar' %}">Importar relatório da MedPlus</a>
-        <a class="botao botao-secundario" href="{% url 'repasses:medicos' %}">Gerenciar médicos</a>
-    </div>
 </section>
 
 <section class="cards-indicadores">
@@ -67,7 +64,7 @@
             <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
             <h3>Histórico de lotes</h3>
             <p>Reabra e re-baixe exportações anteriores, acompanhe o <strong>status do
-               pagamento</strong> (gerado → pago) e veja a auditoria dos ajustes.</p>
+               pagamento</strong> (gerado, pago) e veja a auditoria dos ajustes.</p>
         </a>
 
         <a href="{% url 'repasses:correcoes' %}" class="card-modulo pronto card-link">
@@ -78,4 +75,8 @@
         </a>
     </div>
 </section>
+
+{# Botão flutuante de importar — canto inferior direito, acompanha a rolagem. #}
+<a class="botao botao-primario fab-exportar" href="{% url 'repasses:importar' %}"
+   title="Importar relatório da MedPlus">Importar relatório</a>
 {% endblock %}
