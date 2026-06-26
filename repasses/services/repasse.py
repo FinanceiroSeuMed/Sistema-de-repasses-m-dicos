@@ -127,7 +127,9 @@ def _linhas_repasse(bloco):
         val = round(p.honorario or 0, 2)
         if p is alvo:
             val = round(val + diff, 2)
-        dados.append([p.data_texto, p.paciente, p.procedimento, p.convenio, p.quantidade, val])
+        # Catarata com assistente: adendo no nome do procedimento (Cirurgião 60% / Assistente 40%).
+        proc = p.procedimento + getattr(p, 'sufixo_export', '')
+        dados.append([p.data_texto, p.paciente, proc, p.convenio, p.quantidade, val])
     return cab, dados, total, len(linhas_pag)
 
 

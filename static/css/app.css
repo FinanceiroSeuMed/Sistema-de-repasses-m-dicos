@@ -287,6 +287,10 @@ select.precisa-verificar, .campo-erro { outline: 2px solid #e8b008; outline-offs
 .dica { font-size: 12px; color: var(--texto-suave); }
 .inp-hon { width: 92px; text-align: right; padding: 4px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; font-size: 13px; }
 .inp-hon:focus { outline: none; border-color: var(--azul); }
+/* Valor pré-calculado (placeholder) em cinza claro — o usuário só copia se não preencher. */
+.inp-hon::placeholder { color: #9aa4b2; opacity: 1; font-style: italic; }
+/* Papel no repasse da catarata (Cirurgião / Assistente), logo abaixo do honorário. */
+.papel-cirurgia { margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--texto-suave); text-align: right; }
 .inp-classe { padding: 4px 6px; border: 1px solid var(--cinza-borda); border-radius: 6px; font-size: 12px; max-width: 200px; }
 .anestesista-box { background: #eaf3fb; border: 1px solid #bcdcf5; border-radius: 10px; padding: 10px 14px; margin: 8px 0; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .anestesista-box .campo-inline { display: inline-flex; align-items: center; gap: 6px; }
@@ -298,6 +302,11 @@ select.precisa-verificar, .campo-erro { outline: 2px solid #e8b008; outline-offs
 .pendencias li { font-size: 13px; color: #6b4e00; margin: 2px 0; }
 .pendencias-topo { border-width: 2px; }
 .pendencias-dica { margin: 8px 0 0; font-size: 12px; color: #6b4e00; }
+/* Bloqueio de lote duplicado — vermelho de alerta, com botão de "exportar mesmo assim". */
+.bloqueio-duplicado { background: #fdeaea; border-color: #e7a3a3; }
+.bloqueio-duplicado h3 { color: #9b1c1c; }
+.bloqueio-duplicado li, .bloqueio-duplicado .pendencias-dica { color: #7a1f1f; }
+.bloqueio-duplicado button { margin-top: 10px; }
 
 .tabela { width: 100%; border-collapse: collapse; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; overflow: hidden; box-shadow: var(--sombra); }
 .tabela th, .tabela td { padding: 9px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--cinza-borda); }

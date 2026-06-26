@@ -486,6 +486,67 @@ class FellowSplitTests(TestCase):
                                         'cat_chefe_5': '-500'})
         self.assertAlmostEqual(p.honorario, 1800.0)
 
+    def test_assistente_nao_pede_anestesista(self):
+        # Com assistente, o bloco do assistente (linha sintética) NÃO ativa anestesista.
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow'})
+        bloco_assist = next(b for b in rel.blocos if regras.normalizar(b.profissional) == 'dr fellow')
+        self.assertTrue(getattr(bloco_assist, 'participacao', False))
+        self.assertFalse(bloco_assist.tem_cirurgia)   # não pergunta anestesista de novo
+
+    def test_sufixo_cirurgiao_assistente(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': 'Dr. Fellow'})
+        self.assertEqual(getattr(p, 'sufixo_export', ''), ' - Cirurgião 60%')
+        self.assertEqual(getattr(self._fellow_line(rel), 'sufixo_export', ''), ' - Assistente 40%')
+
+    def test_cirurgiao_sem_assistente_sem_sufixo(self):
+        from repasses import views
+        rel, p = self._rel_catarata(10000.0)
+        views._resolver_cirurgias(rel, {'cat_modo_5': 'avista', 'cat_fellow_5': '__sem__'})
+        self.assertEqual(getattr(p, 'sufixo_export', ''), '')   # sem split -> sem adendo
+        self.assertAlmostEqual(p.honorario, 3000.0)             # cirurgião 100%
+
+
+class DuplicidadeTests(TestCase):
+    """Bloqueio de lote duplicado (mesmo período já exportado)."""
+
+    def _rel_com(self, *fps_de):
+        from types import SimpleNamespace
+        blocos = []
+        for prof, proc, data in fps_de:
+            p = medplus.Procedimento(data, '', 'Pac', proc, 'Particular', 1, 100, None)
+            p.honorario = 100.0; p.status_calculo = 'calculado'
+            b = medplus.BlocoMedico(profissional=prof); b.procedimentos = [p]
+            blocos.append(b)
+        return SimpleNamespace(blocos=blocos)
+
+    def test_bloqueia_duplicado_e_libera_distinto(self):
+        import datetime
+        from repasses import views
+        from repasses.models import Lote
+        rel = self._rel_com(('Dr. A', 'Consulta', datetime.date(2026, 6, 16)),
+                            ('Dr. B', 'Exame', datetime.date(2026, 6, 16)))
+        fps = views._fingerprints_pagaveis(rel)
+        Lote.objects.create(token='lote-antigo', arquivo_nome='junho.xls', fingerprints=fps)
+        # outro upload com os MESMOS atendimentos -> duplicado
+        self.assertTrue(views._lotes_duplicados('novo-token', fps))
+        # re-exportar o MESMO upload (mesmo token) não bloqueia
+        self.assertFalse(views._lotes_duplicados('lote-antigo', fps))
+        # mesmo dia/mês de OUTRO ano -> NÃO casa (fingerprint tem o ano)
+        rel2027 = self._rel_com(('Dr. A', 'Consulta', datetime.date(2027, 6, 16)),
+                                ('Dr. B', 'Exame', datetime.date(2027, 6, 16)))
+        self.assertFalse(views._lotes_duplicados('novo-token', views._fingerprints_pagaveis(rel2027)))
+
+
+class SeedNomeTests(SimpleTestCase):
+    def test_corrige_redientes(self):
+        from repasses.management.commands.seed_medicos import _corrigir_nome
+        self.assertEqual(_corrigir_nome('Redientes Dra. Regina'), 'Residentes Dra. Regina')
+        self.assertEqual(_corrigir_nome('Dr. Rodolpho'), 'Dr. Rodolpho')   # inalterado
+
 
 class ReginaTests(SimpleTestCase):
     """Dra. Regina: valor por faixa + distinção indivíduo x equipe."""

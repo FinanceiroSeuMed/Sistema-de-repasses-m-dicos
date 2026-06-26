@@ -177,9 +177,13 @@ def _aplicar_edicoes_sinteticas(resultado, post):
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
             if getattr(p, 'editavel', False):
-                v = _num(post.get(f'hon_{p.idx}'))
+                raw = (post.get(f'hon_{p.idx}') or '').strip()
+                v = _num(raw)
                 if v is not None and v >= 0:
                     p.honorario = v
+                    p.sel_hon = raw     # mostra o valor digitado (preto); vazio -> placeholder cinza
+                else:
+                    p.sel_hon = ''
 
 
 _RE_SUFIXO_CADASTRO = re.compile(r'\s*\([^)]*\)\s*$')
@@ -541,33 +545,39 @@ def _resolver_cirurgias(resultado, post):
                 continue  # forma de pagamento não confirmada — permanece pendente
             taxa = regras.CATARATA_AVISTA if modo == 'avista' else regras.CATARATA_PARCELADO
             total = taxa * p.valor
+            # O CIRURGIÃO edita o valor no seu próprio campo (cat_chefe_), com o valor
+            # pré-calculado como placeholder cinza — uma única linha, sem linha extra de
+            # resultado. Vale com OU sem assistente. (Diretoria 2026-06-26.)
+            chefe_ovr = _num(post.get(f'cat_chefe_{p.idx}'))
+            manual_chefe = chefe_ovr is not None and chefe_ovr >= 0
             if fellow:
-                # 60/40 calculado, cada um EDITÁVEL no seu próprio campo:
-                #  - o chefe (60%) pelo campo cat_chefe_ na linha do cirurgião;
-                #  - o fellow (40%) pelo campo hon_ na PRÓPRIA linha de participação
-                #    (aplicado depois, em _aplicar_edicoes_sinteticas). (Diretoria 2026-06-24.)
+                # Split 60/40: cirurgião 60% (campo dele) + assistente 40% (campo na
+                # PRÓPRIA linha de participação, aplicado em _aplicar_edicoes_sinteticas).
                 chefe_calc = round(total * (1 - regras.FELLOW_PERCENTUAL), 2)
                 fellow_calc = round(round(total, 2) - chefe_calc, 2)
                 p.chefe_calc = chefe_calc                          # placeholder do cat_chefe
-                chefe_ovr = _num(post.get(f'cat_chefe_{p.idx}'))
-                manual_chefe = chefe_ovr is not None and chefe_ovr >= 0
                 p.honorario = chefe_ovr if manual_chefe else chefe_calc
-                p.motivo_calculo = (f'Catarata particular ({modo}) — cirurgião 60%; fellow {fellow} 40%'
-                                    + (' (chefe ajustado).' if manual_chefe else '.'))
+                p.sufixo_export = ' - Cirurgião 60%'               # adendo no repasse exportado
+                p.motivo_calculo = (f'Catarata particular ({modo}) — Cirurgião 60%; Assistente {fellow} 40%'
+                                    + (' (cirurgião ajustado).' if manual_chefe else '.'))
                 linha = medplus.Procedimento(
                     data=p.data, data_texto=p.data_texto, paciente=p.paciente,
-                    procedimento=f'{p.procedimento} (participação em cirurgia)',
+                    procedimento=p.procedimento,
                     convenio=p.convenio, quantidade=p.quantidade, valor=p.valor,
                     honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA, hora=p.hora)
                 linha.honorario = fellow_calc       # 40% padrão (editável na própria linha)
+                linha.fellow_calc = fellow_calc     # placeholder cinza do campo do assistente
                 linha.status_calculo = 'calculado'
                 linha.sintetica = True
                 linha.editavel = True               # tem campo de honorário próprio
-                linha.motivo_calculo = f'Fellow 40% da catarata de {bloco.profissional}.'
+                linha.sufixo_export = ' - Assistente 40%'
+                linha.motivo_calculo = f'Assistente 40% da catarata de {bloco.profissional}.'
                 extras[(fellow, p.data, p.clinica)].append(linha)
             else:
-                p.honorario = round(total, 2)
-                p.motivo_calculo = f'Catarata particular ({modo}) — cirurgião 100% (sem fellow).'
+                p.chefe_calc = round(total, 2)                     # placeholder (100%)
+                p.honorario = chefe_ovr if manual_chefe else round(total, 2)
+                p.motivo_calculo = (f'Catarata particular ({modo}) — Cirurgião 100% (sem assistente)'
+                                    + (' (ajustado).' if manual_chefe else '.'))
             p.status_calculo = 'calculado'
             p.eh_catarata_part = True   # mantém o seletor à vista/parcelado na tela
 
@@ -926,6 +936,19 @@ def exportar(request):
                        'inclusive os "sem anestesista"/"sem fellow", para não passar nada batido.']
         return render(request, 'repasses/revisao.html', ctx)
 
+    # Bloqueia a exportação de lote DUPLICADO (mesmo período de atendimentos já
+    # exportado em outro lote), salvo confirmação explícita. (Diretoria 2026-06-26.)
+    if request.POST.get('forcar_duplicado') != '1':
+        dups = _lotes_duplicados(token, _fingerprints_pagaveis(resultado))
+        if dups:
+            ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
+            ctx['bloqueio_duplicado'] = [
+                f'Lote #{o.id} ({o.arquivo_nome or "?"}, exportado em {o.criado_em:%d/%m/%Y}) '
+                f'— {n} atendimento(s) iguais.' for o, n in dups]
+            ctx['info'] = ['⛔ Exportação BLOQUEADA: estes atendimentos parecem duplicados '
+                           '(mesmo período já exportado). Confira para não pagar 2×.']
+            return render(request, 'repasses/revisao.html', ctx)
+
     info = _memorizar_correcoes(resultado, request.POST)
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
@@ -1103,6 +1126,34 @@ def _fingerprint(p, profissional):
         regras.normalizar(p.convenio or ''),
         ('%.2f' % float(p.valor)) if p.valor is not None else '',
     ])
+
+
+def _fingerprints_pagaveis(resultado):
+    """Impressões digitais dos atendimentos PAGÁVEIS deste resultado (p/ duplicidade)."""
+    fps = []
+    for b in resultado.blocos:
+        for p in b.procedimentos:
+            if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
+                fps.append(_fingerprint(p, b.profissional))
+    return fps
+
+
+def _lotes_duplicados(token, fps, limiar=0.5):
+    """Lotes de OUTRO upload que já contêm a MAIORIA (>= limiar) destes atendimentos.
+    O fingerprint inclui a data COMPLETA (com ano), então o mesmo dia/mês de outro ano
+    NÃO casa. Devolve [(lote, n_repetidos)] — vazio se não há duplicidade relevante."""
+    if not fps:
+        return []
+    novos = Counter(fps)
+    total = sum(novos.values())
+    dups = []
+    outros = (Lote.objects.exclude(token=token)
+              .only('id', 'arquivo_nome', 'criado_em', 'fingerprints'))
+    for outro in outros:
+        n = sum((novos & Counter(outro.fingerprints or [])).values())
+        if n and n >= max(1, round(total * limiar)):
+            dups.append((outro, n))
+    return dups
 
 
 def _auditoria_lote(resultado, dados):

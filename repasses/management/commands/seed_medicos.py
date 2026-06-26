@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
 """Popula/atualiza o cadastro de médicos a partir da planilha de regras (anexo 5)."""
 
+import re
+
 from django.core.management.base import BaseCommand
 
 from repasses.models import Medico
 from repasses.services import regras
+
+
+def _corrigir_nome(nome: str) -> str:
+    """Corrige erros de digitação herdados da planilha de regras.
+    Ex.: "Redientes Dra. Regina" -> "Residentes Dra. Regina". (Diretoria 2026-06-26.)"""
+    return re.sub(r'(?i)rediente', 'Residente', nome)   # "Redientes" -> "Residentes"
 
 
 # Razões sociais confirmadas pela diretoria que NÃO vêm na planilha de regras.
@@ -36,18 +44,27 @@ class Command(BaseCommand):
                 'Planilha de regras não encontrada (settings.REGRAS_REPASSE_PATH).'))
             return
 
+        # Corrige nomes com erro de digitação que já estejam no cadastro (ex.: "Redientes")
+        # ANTES de montar o índice, para o seed casar com o registro renomeado (não duplicar).
+        for m in Medico.objects.all():
+            novo = _corrigir_nome(m.nome)
+            if novo != m.nome and not Medico.objects.filter(nome=novo).exclude(pk=m.pk).exists():
+                m.nome = novo
+                m.save(update_fields=['nome'])
+
         existentes = {regras.normalizar(m.nome): m for m in Medico.objects.all()}
         criados = atualizados = 0
 
         for rm in livro.medicos:
-            chave = regras.normalizar(rm.nome)
+            nome = _corrigir_nome(rm.nome)
+            chave = regras.normalizar(nome)
             if not chave:
                 continue
             cat = _categoria_primaria(regras.normalizar(rm.categoria))
 
             medico = existentes.get(chave)
             if medico is None:
-                medico = Medico(nome=rm.nome)
+                medico = Medico(nome=nome)
                 criados += 1
             else:
                 atualizados += 1

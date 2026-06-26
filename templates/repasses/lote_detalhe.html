@@ -31,7 +31,7 @@
 
 <section class="resumo-importacao">
     <div class="resumo-linha">
-        <div><span class="resumo-rotulo">Período</span><span class="resumo-valor">{% if lote.periodo_inicio %}{{ lote.periodo_inicio|date:"d/m" }}–{{ lote.periodo_fim|date:"d/m" }}{% else %}—{% endif %}</span></div>
+        <div><span class="resumo-rotulo">Período</span><span class="resumo-valor">{% if lote.periodo_inicio %}{{ lote.periodo_inicio|date:"d/m" }}–{{ lote.periodo_fim|date:"d/m/Y" }}{% else %}—{% endif %}</span></div>
         <div><span class="resumo-rotulo">Médicos</span><span class="resumo-valor">{{ lote.n_medicos }}</span></div>
         <div><span class="resumo-rotulo">Repasses</span><span class="resumo-valor">{{ lote.n_repasses }}</span></div>
         <div><span class="resumo-rotulo">A pagar</span><span class="resumo-valor">{{ lote.total_pagar|moeda }}</span></div>

@@ -134,8 +134,11 @@ class BlocoMedico:
 
     @property
     def tem_cirurgia(self) -> bool:
-        """Só cirurgias de fato (não procedimentos de consultório) ativam o anestesista."""
+        """Só cirurgias de fato (não procedimentos de consultório) ativam o anestesista.
+        Linhas sintéticas (participação do fellow/assistente) NÃO contam: o anestesista
+        já é definido no repasse do cirurgião, não se pergunta de novo. (Diretoria 2026-06-26.)"""
         return any(p.classe == CLASSE_CIRURGIA and eh_cirurgia(p.procedimento)
+                   and not getattr(p, 'sintetica', False)
                    for p in self.procedimentos)
 
     @property

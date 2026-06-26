@@ -24,6 +24,19 @@
 {% for msg in avisos %}<div class="alerta alerta-aviso">{{ msg }}</div>{% endfor %}
 {% for msg in info %}<div class="alerta alerta-ok">{{ msg }}</div>{% endfor %}
 
+{% if bloqueio_duplicado %}
+<section class="pendencias pendencias-topo bloqueio-duplicado">
+    <h3>⛔ Exportação bloqueada — possível lote DUPLICADO</h3>
+    <ul>{% for m in bloqueio_duplicado %}<li>{{ m }}</li>{% endfor %}</ul>
+    <p class="pendencias-dica">Estes atendimentos (mesmo período) já saíram em outro lote — confira para
+        <strong>não pagar 2×</strong>. Se tiver CERTEZA de que não é duplicado, confirme abaixo.</p>
+    <button type="submit" form="form-revisao" name="forcar_duplicado" value="1"
+            formaction="{% url 'repasses:exportar' %}" class="botao botao-secundario-escuro">
+        Exportar mesmo assim (não é duplicado)
+    </button>
+</section>
+{% endif %}
+
 {% if aviso_regras %}<div class="alerta alerta-aviso">{{ aviso_regras }}</div>{% endif %}
 
 {% if lembretes_regina %}
@@ -117,11 +130,9 @@
     <input type="hidden" name="token" value="{{ token }}">
 
     <section class="acoes-exportar">
-        <button type="submit" class="botao botao-primario">⬇ {% if downloads %}Reexportar com as edições{% else %}Exportar os arquivos{% endif %}</button>
         <button type="submit" formaction="{% url 'repasses:visualizar' %}" class="botao botao-secundario-escuro">👁 Visualizar (sem gerar arquivo)</button>
         <button type="submit" formaction="{% url 'repasses:salvar' %}" class="botao botao-secundario-escuro">💾 Salvar alterações</button>
-        <a class="botao botao-secundario-escuro" href="{% url 'repasses:importar' %}">Trocar arquivo</a>
-        <span class="dica">As alterações ficam guardadas (clique em <strong>Salvar</strong> a qualquer momento) até você importar um novo repasse.</span>
+        <span class="dica">Use o botão <strong>Exportar</strong> (canto inferior direito) para gerar os arquivos. As alterações ficam guardadas (clique em <strong>Salvar</strong>) até você importar um novo repasse.</span>
     </section>
 
     {% for bloco in resultado.blocos %}
@@ -189,10 +200,13 @@
                     <td class="num">{{ p.valor|moeda }}</td>
                     <td class="num">
                         {% if p.sintetica and p.editavel %}
-                        {# Linha do fellow: honorário editável NA PRÓPRIA linha #}
+                        {# Linha do ASSISTENTE: campo editável; valor pré-calculado em cinza
+                           (placeholder) — se não preencher, o sistema usa esse valor. #}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
-                               value="{{ p.honorario|valor2 }}" data-exato="{{ p.honorario|valor_exato }}"
+                               value="{{ p.sel_hon|default:'' }}" placeholder="{{ p.fellow_calc|valor2 }}"
+                               data-exato="{{ p.honorario|valor_exato }}"
                                title="{{ p.motivo_calculo }}">
+                        <div class="papel-cirurgia">Assistente</div>
                         {% elif p.sintetica %}
                         <span class="hon-fixo" title="{{ p.motivo_calculo }}">{{ p.honorario|moeda }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
@@ -202,12 +216,14 @@
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
                             <option value="parcelado"{% if p.sel_cat_modo == 'parcelado' %} selected{% endif %}>Parcelado (28%)</option>
                         </select>
-                        <div class="cat-valor" data-valor="{{ p.honorario|valor_exato }}" title="{{ p.motivo_calculo }}">{% if p.honorario %}{{ p.honorario|moeda }}{% else %}declare a forma{% endif %}</div>
-                        {% if p.sel_cat_fellow %}
-                        <div class="cat-split" title="Ajuste manual do chefe (60%). O fellow (40%) edita na linha dele.">
-                            <label>chefe <input type="text" class="inp-split" name="cat_chefe_{{ p.idx }}" value="{{ p.sel_cat_chefe }}" placeholder="{{ p.chefe_calc|valor2 }}"></label>
-                        </div>
-                        {% endif %}
+                        {# CIRURGIÃO: uma única linha — campo editável com o valor pré-calculado
+                           em cinza (placeholder). Vazio -> usa o cálculo. #}
+                        <input type="text" class="inp-hon" name="cat_chefe_{{ p.idx }}"
+                               value="{{ p.sel_cat_chefe|default:'' }}"
+                               placeholder="{% if p.chefe_calc %}{{ p.chefe_calc|valor2 }}{% else %}declare a forma{% endif %}"
+                               data-exato="{{ p.honorario|valor_exato }}"
+                               title="{{ p.motivo_calculo }}">
+                        <div class="papel-cirurgia">Cirurgião</div>
                         {% else %}
                         <input type="text" class="inp-hon" name="hon_{{ p.idx }}"
                                value="{{ p.honorario|valor2 }}"
@@ -414,14 +430,10 @@
     }
     function recalcular(tabela) {
         var total = 0, linhas = 0;
+        // inclui o campo do cirurgião na catarata (cat_chefe_, também .inp-hon)
         tabela.querySelectorAll('input.inp-hon').forEach(function (inp) {
             var v = valorLinha(inp);
             if (v > 0) { total += v; linhas += 1; }
-        });
-        // catarata particular: valor já resolvido (à vista/parcelado), fora dos inputs
-        tabela.querySelectorAll('.cat-valor').forEach(function (el) {
-            var v = parseFloat(el.dataset.valor);
-            if (!isNaN(v) && v > 0) { total += v; linhas += 1; }
         });
         var cel = tabela.querySelector('.total-bloco');
         if (cel) cel.textContent = paraReais(total);
@@ -437,11 +449,13 @@
         });
         recalcular(tabela);
     });
-    // Trocar à vista/parcelado limpa o ajuste manual do 60/40 (recalcula no Salvar).
+    // Trocar à vista/parcelado limpa o valor digitado do cirurgião (recalcula no Salvar).
     document.querySelectorAll('select[name^="cat_modo_"]').forEach(function (sel) {
         sel.addEventListener('change', function () {
             var td = sel.closest('td');
-            if (td) td.querySelectorAll('.inp-split').forEach(function (i) { i.value = ''; });
+            if (td) td.querySelectorAll('input[name^="cat_chefe_"]').forEach(function (i) {
+                i.value = ''; i.dataset.tocado = '';
+            });
         });
     });
 })();
