@@ -317,17 +317,27 @@ class RelatorioMensalTests(SimpleTestCase):
             self.assertRegex(ln['data'], r'^\d{4}-\d{2}-\d{2}$')          # data ISO (p/ JSON)
             self.assertIn(ln['resumo'], ('Consultas e exames', 'Cirurgias e procedimentos',
                                          'Preceptoria', 'Anestesia'))
-        conteudo = relatorio.gerar_relatorio_mensal(linhas, 'Teste')
+        conteudo = relatorio.gerar_relatorio_mensal(linhas, 'Teste Mensal')
         ws = load_workbook(io.BytesIO(conteudo))['Contas a Pagar - Padrão']
-        self.assertEqual([ws.cell(1, c).value for c in range(1, 6)],
-                         ['Filial', 'Destino', 'DataVencimento', 'Valor', 'Categoria'])
-        nomes = [ws.cell(r, 2).value for r in range(2, 2 + len(linhas))]
-        self.assertEqual(nomes, sorted(nomes, key=lambda s: s.lower()))   # ordenado por Dr.
-        r, classes = 1, []
-        while ws.cell(r, 7).value and ws.cell(r, 7).value != 'TOTAL':
-            classes.append(ws.cell(r, 8).value); r += 1
-        self.assertEqual(ws.cell(r, 7).value, 'TOTAL')
-        self.assertAlmostEqual(round(sum(classes), 2), round(ws.cell(r, 8).value, 2))
+        textos = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
+        self.assertIn('Teste Mensal', textos)                 # título no topo
+        self.assertIn('RESUMO GERAL', textos)                 # quadro geral (E5)
+        self.assertIn('Data do Atendimento', textos)          # nova coluna (E2)
+        self.assertIn('Data de Vencimento', textos)           # renomeada (E1)
+        self.assertNotIn('DataVencimento', textos)            # nome antigo sumiu
+        # cabeçalho repetido em cada grupo de médico (E3)
+        n_medicos = len({l['medico'] for l in linhas})
+        self.assertGreaterEqual(textos.count('Filial'), n_medicos)
+        # Total a Pagar geral = soma de TODOS os valores (E5)
+        total_esperado = round(sum(float(l['valor']) for l in linhas), 2)
+        achou = False
+        for row in ws.iter_rows():
+            rotulos = [c.value for c in row]
+            if 'Total a Pagar' in rotulos:
+                i = rotulos.index('Total a Pagar')
+                self.assertAlmostEqual(round(float(row[i + 1].value), 2), total_esperado)
+                achou = True
+        self.assertTrue(achou)
 
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, FEXPORT2), 'amostra com OCI de residente ausente')
@@ -510,6 +520,31 @@ class FellowSplitTests(TestCase):
         self.assertAlmostEqual(p.honorario, 3000.0)             # cirurgião 100%
 
 
+class EquipeDestinoTests(TestCase):
+    """Agenda 'Equipe Dr. Keiti' roteada para o médico escolhido (Keiti/Thalia)."""
+
+    def test_resolver_equipe_roteia(self):
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.models import Medico
+        Medico.objects.create(nome='Dr. Keiti Fernando Shirasu', razao_social='CLINICA SHIRASU')
+        b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.equipe_keiti = True
+        rel = SimpleNamespace(blocos=[b])
+        views._resolver_equipe(rel, {'equipe_destino_0': 'Dr. Keiti Fernando Shirasu'})
+        self.assertEqual(b.profissional, 'Dr. Keiti Fernando Shirasu')
+        self.assertEqual(b.razao_social, 'CLINICA SHIRASU')
+
+    def test_sem_escolha_permanece_equipe(self):
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.models import Medico
+        Medico.objects.create(nome='Dr. Keiti Fernando Shirasu')
+        b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.equipe_keiti = True
+        rel = SimpleNamespace(blocos=[b])
+        views._resolver_equipe(rel, {'equipe_destino_0': '__verificar__'})
+        self.assertEqual(b.profissional, views._NOME_EQUIPE_KEITI)   # pendente
+
+
 class DuplicidadeTests(TestCase):
     """Bloqueio de lote duplicado (mesmo período já exportado)."""
 
@@ -635,23 +670,35 @@ class ReginaTests(SimpleTestCase):
 
 
 class KeitiOciEquipeTests(SimpleTestCase):
-    """Agenda 'Equipe Dr. Keiti' -> repasse do Dr. Keiti; OCI não vira pacote de R$1.000."""
+    """Agenda 'Equipe Dr. Keiti' -> mantida + marcada (destino Keiti/Thalia na revisão)."""
 
-    def test_dono_da_agenda_equipe(self):
+    def test_reconhece_equipe_keiti(self):
         from repasses import views
-        self.assertEqual(views._dono_agenda_equipe('equipe - dr. keiti shirasu'),
-                         views._NOME_KEITI)
-        self.assertIsNone(views._dono_agenda_equipe('dra. thalia macaris'))
-        self.assertIsNone(views._dono_agenda_equipe('equipe dra. regina'))
+        self.assertTrue(views._eh_equipe_keiti('equipe - dr. keiti shirasu'))
+        self.assertFalse(views._eh_equipe_keiti('dra. thalia macaris'))
+        self.assertFalse(views._eh_equipe_keiti('equipe dra. regina'))
 
-    def test_filtrar_renomeia_equipe_keiti(self):
+    def test_filtrar_mantem_e_marca_equipe_keiti(self):
         from types import SimpleNamespace
         from repasses import views
         b = medplus.BlocoMedico(profissional='Equipe - Dr. Keiti Shirasu')
         rel = SimpleNamespace(blocos=[b])
         views._filtrar_blocos(rel)
-        self.assertEqual(len(rel.blocos), 1)               # não é mais descartada
-        self.assertEqual(rel.blocos[0].profissional, views._NOME_KEITI)
+        self.assertEqual(len(rel.blocos), 1)               # não é descartada
+        self.assertTrue(getattr(rel.blocos[0], 'equipe_keiti', False))
+        self.assertEqual(rel.blocos[0].profissional, views._NOME_EQUIPE_KEITI)
+
+    def test_aplicar_keiti_pula_equipe(self):
+        # _aplicar_keiti não mexe na agenda da equipe (destino é escolhido depois).
+        from types import SimpleNamespace
+        from repasses import views
+        oci = medplus.Procedimento(None, '', '', 'OCI AVALIAÇÃO DE ESTRABISMO',
+                                   'OCI - SUS', 1, 200, None)
+        oci.classe = medplus.CLASSE_EXAME; oci.honorario = 50.0; oci.status_calculo = 'calculado'
+        b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.procedimentos = [oci]
+        b.equipe_keiti = True
+        views._aplicar_keiti(SimpleNamespace(blocos=[b]))
+        self.assertEqual([p.honorario for p in b.procedimentos], [50.0])   # intacto
 
     def test_aplicar_keiti_oci_mantem_valor(self):
         from repasses import views

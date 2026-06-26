@@ -105,7 +105,7 @@ def _caminho_upload(token: str):
 
 # Campos da revisão que ficam salvos (o resto — token, csrf, memorizar — não).
 _PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
-                      'cat_chefe_', 'cat_fellowval_',
+                      'cat_chefe_', 'cat_fellowval_', 'equipe_destino_',
                       'anest_nome_', 'anest_horas_', 'preceptoria_', 'memo_medicos_')
 
 
@@ -137,6 +137,7 @@ def _anotar_selecoes(resultado, dados):
         bloco.sel_anest_nome = dados.get(f'anest_nome_{i}', '')
         bloco.sel_anest_horas = dados.get(f'anest_horas_{i}', '')
         bloco.sel_preceptoria = dados.get(f'preceptoria_{i}', '')
+        bloco.sel_equipe_destino = dados.get(f'equipe_destino_{i}', '')
         for p in bloco.procedimentos:
             p.sel_cat_modo = dados.get(f'cat_modo_{p.idx}', '')
             p.sel_cat_fellow = dados.get(f'cat_fellow_{p.idx}', '')
@@ -155,6 +156,10 @@ def _preparar_revisao(token):
     resultado.log_edicoes = []          # auditoria: ajustes manuais de honorário
     dados = _carregar_rascunho(token)
     _aplicar_edicoes(resultado, dados)
+    # Agenda "Equipe Dr. Keiti": roteia para o Dr. Keiti ou a Dra. Thalia (escolha da
+    # diretoria). Roda ANTES dos demais resolvers (antes de criar blocos sintéticos),
+    # para o índice do seletor casar com a posição do bloco. (Diretoria 2026-06-27.)
+    _resolver_equipe(resultado, dados)
     _resolver_anestesistas(resultado, dados)
     # Resolve a catarata particular JÁ no preview: quando o usuário declara à
     # vista/parcelado, o valor entra no total e o repasse do fellow (40%) aparece.
@@ -191,17 +196,26 @@ _RE_TITULO_MEDICO = re.compile(r'dra?\b')
 # Médicos/agendas deixados de fora por ora (entram em funcionalidade futura)
 _EXCLUIR_MEDICOS = ('crivari', 'guilherme', 'maria marta')
 
-# Agendas de "equipe" cujo trabalho (ex.: OCI) é repassado a um médico específico.
-# A diretoria pediu: lançamentos da agenda "Equipe Dr. Keiti" são do Dr. Keiti.
+# Agenda "Equipe Dr. Keiti": o destino (Dr. Keiti OU Dra. Thalia) é escolhido pela
+# diretoria na revisão (até existir uma agenda "Equipe Dra. Thalia"). (2026-06-27.)
 _NOME_KEITI = 'Dr. Keiti Fernando Shirasu'
+_NOME_EQUIPE_KEITI = 'Equipe Dr. Keiti'
 
 
-def _dono_agenda_equipe(n):
-    """Se a agenda for de uma 'equipe' que repassa a um médico, devolve o nome
-    canônico do médico dono; senão, None. `n` já vem normalizado (minúsculo, s/ acento)."""
-    if 'equipe' in n and 'keiti' in n:
-        return _NOME_KEITI
-    return None
+def _eh_equipe_keiti(n):
+    """A agenda é a 'Equipe Dr. Keiti'? `n` já vem normalizado (minúsculo, s/ acento)."""
+    return 'equipe' in n and 'keiti' in n
+
+
+def _equipe_destinos():
+    """Médicos que podem receber a agenda 'Equipe Dr. Keiti' (Dr. Keiti, Dra. Thalia)."""
+    nomes = []
+    for frag in ('keiti', 'thalia'):
+        m = (Medico.objects.filter(nome__icontains=frag)
+             .exclude(nome__icontains='equipe').order_by('nome').first())
+        if m and m.nome not in nomes:
+            nomes.append(m.nome)
+    return nomes
 
 
 def _filtrar_blocos(resultado):
@@ -209,11 +223,11 @@ def _filtrar_blocos(resultado):
     novos = []
     for bloco in resultado.blocos:
         n = regras.normalizar(bloco.profissional)
-        dono = _dono_agenda_equipe(n)
-        if dono:
-            # "Equipe - Dr. Keiti Shirasu" -> o repasse é do Dr. Keiti. Renomeia aqui
-            # (antes do _separar_por_dia) para fundir com a agenda dele, se houver.
-            bloco.profissional = dono
+        if _eh_equipe_keiti(n):
+            # Mantém a agenda (apesar de não começar com "Dr."); o destino é decidido
+            # na revisão por _resolver_equipe. Marca para o resto do fluxo reconhecer.
+            bloco.equipe_keiti = True
+            bloco.profissional = _NOME_EQUIPE_KEITI
             novos.append(bloco)
             continue
         if not _RE_TITULO_MEDICO.match(n):
@@ -296,6 +310,13 @@ def _ler_e_processar(caminho, nome=''):
         resultado.blocos = [b for b in resultado.blocos
                             if not regras.eh_residente(livro, b.profissional)]
         _aplicar_keiti(resultado)
+        # Equipe Dr. Keiti: os lançamentos são SEMPRE consultas/exames (diretoria
+        # 2026-06-27) — nunca cirurgia — no a pagar/receber da OMIE. Força após a
+        # memória de classes para não ser sobrescrito.
+        for bloco in resultado.blocos:
+            if getattr(bloco, 'equipe_keiti', False):
+                for p in bloco.procedimentos:
+                    p.classe = medplus.CLASSE_EXAME
         _marcar_preceptoria(resultado, livro)
         _marcar_taxas_sala(resultado)
     _limpar_linhas(resultado)
@@ -317,6 +338,8 @@ def _medicos_desconhecidos(resultado, livro):
     vistos, novos = set(), []
     for bloco in resultado.blocos:
         if getattr(bloco, 'participacao', False):     # bloco sintético (fellow) — ignora
+            continue
+        if getattr(bloco, 'equipe_keiti', False):     # "Equipe Dr. Keiti" — destino é escolhido
             continue
         if livro.medico_por_nome(bloco.profissional) is not None:
             continue
@@ -357,6 +380,7 @@ def _separar_por_dia(resultado):
                 nb.data = p.data
                 nb.clinica = p.clinica
                 nb.subunidade = sub
+                nb.equipe_keiti = getattr(bloco, 'equipe_keiti', False)  # preserva a marca
                 grupos[chave] = nb
                 ordem.append(chave)
             nb.procedimentos.append(p)
@@ -423,6 +447,10 @@ def _aplicar_keiti(resultado):
     OCI (inclusive os vindos da agenda "Equipe Dr. Keiti") NÃO entram no pacote de
     R$ 1.000 — cada OCI mantém o seu próprio valor de repasse (regra do convênio)."""
     for bloco in resultado.blocos:
+        # A agenda "Equipe Dr. Keiti" tem destino próprio (Keiti/Thalia, em
+        # _resolver_equipe) e usa o valor por linha — não o pacote de R$ 1.000.
+        if getattr(bloco, 'equipe_keiti', False):
+            continue
         if 'keiti' not in regras.normalizar(bloco.profissional):
             continue
         tem_exame = False
@@ -607,6 +635,24 @@ def _resolver_cirurgias(resultado, post):
         bloco.procedimentos.extend(linhas)
 
 
+def _resolver_equipe(resultado, post):
+    """A agenda 'Equipe Dr. Keiti' vai para o Dr. Keiti OU a Dra. Thalia, conforme a
+    diretoria escolher na revisão. Renomeia o bloco para o médico escolhido (nome +
+    razão social do cadastro). Sem escolha, fica "Equipe Dr. Keiti" (pendente)."""
+    validos = set(_equipe_destinos())
+    for i, bloco in enumerate(resultado.blocos):
+        if not getattr(bloco, 'equipe_keiti', False):
+            continue
+        destino = (post.get(f'equipe_destino_{i}') or '').strip()
+        if destino not in validos:
+            continue   # não escolhido -> permanece pendente
+        m = Medico.objects.filter(nome=destino).first()
+        bloco.profissional = m.nome if m else destino
+        bloco.razao_social = (m.razao_social if m else '') or bloco.razao_social
+        bloco.medico_cadastro = m.nome if m else destino
+        bloco.equipe_resolvido = destino
+
+
 def _resolver_preceptoria(resultado, post):
     """Adiciona a linha de preceptoria semanal informada pelo usuário na revisão."""
     for i, bloco in enumerate(list(resultado.blocos)):
@@ -692,7 +738,14 @@ def _campos_pendentes(resultado, post):
     classificação (A classificar), forma de pagamento + fellow (catarata particular)
     e anestesista (cirurgias). (Diretoria 2026-06-25.)"""
     pend = []
+    destinos_equipe = None   # consulta o cadastro só se houver agenda de equipe
     for i, bloco in enumerate(resultado.blocos):
+        if getattr(bloco, 'equipe_keiti', False):
+            if destinos_equipe is None:
+                destinos_equipe = set(_equipe_destinos())
+            if (post.get(f'equipe_destino_{i}') or '').strip() not in destinos_equipe:
+                pend.append((f'equipe_destino_{i}', 'Agenda "Equipe Dr. Keiti": escolha o destino '
+                             '(Dr. Keiti ou Dra. Thalia).'))
         if bloco.tem_cirurgia and not getattr(bloco, 'participacao', False):
             if (post.get(f'anest_nome_{i}') or '').strip() in ('', _VERIFICAR):
                 pend.append((f'anest_nome_{i}', f'Anestesista de {bloco.profissional} — confirme (ou "sem anestesista").'))
@@ -920,6 +973,8 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'anestesistas': list(Medico.objects.filter(eh_anestesista=True).order_by('nome')),
         'lembretes_regina': getattr(resultado, 'lembretes_regina', []),
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
+        # Destinos possíveis da agenda "Equipe Dr. Keiti" (Dr. Keiti / Dra. Thalia).
+        'equipe_destinos': _equipe_destinos(),
     }
 
 

@@ -13,16 +13,23 @@
     </p>
 </section>
 
-{% if pendencias %}
-<section class="pendencias pendencias-topo">
-    <h3>⚠️ {{ pendencias|length }} pendência(s) — trate abaixo antes de exportar</h3>
-    <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
-    <p class="pendencias-dica">Edite o honorário (ou a classe) de cada linha marcada como <strong>"A definir"</strong> no detalhamento abaixo. Em branco = não entra nos arquivos.</p>
-</section>
-{% endif %}
+{# Caixa de pendências flutuante à esquerda — atualiza em tempo real (sem Salvar). #}
+<aside id="painel-pendencias" class="painel-pendencias" hidden>
+    <h4>⚠️ Faltam <span class="pend-conta">0</span></h4>
+    <ul class="pend-lista"></ul>
+    <p class="pend-vazio" hidden>✓ Tudo preenchido — pode exportar.</p>
+</aside>
 
 {% for msg in avisos %}<div class="alerta alerta-aviso">{{ msg }}</div>{% endfor %}
 {% for msg in info %}<div class="alerta alerta-ok">{{ msg }}</div>{% endfor %}
+
+{# Avisos da exportação (o que NÃO entrou na OMIE) — só aparecem no resultado do export. #}
+{% if pendencias and downloads %}
+<section class="pendencias pendencias-topo">
+    <h3>⚠️ Confira ({{ pendencias|length }})</h3>
+    <ul>{% for p in pendencias %}<li>{{ p }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
 
 {% if bloqueio_duplicado %}
 <section class="pendencias pendencias-topo bloqueio-duplicado">
@@ -163,11 +170,27 @@
         </div>
         {% endif %}
 
+        {% if bloco.equipe_keiti %}
+        <div class="anestesista-box">
+            <strong>👥 Agenda "Equipe Dr. Keiti" — os lançamentos vão para:</strong>
+            <span class="campo-inline">
+                <select name="equipe_destino_{{ forloop.counter0 }}" data-campo="equipe_destino_{{ forloop.counter0 }}"
+                        data-pendencia="Destino da agenda Equipe Dr. Keiti"
+                        class="inp-classe campo-obrig{% if bloco.sel_equipe_destino not in equipe_destinos %} precisa-verificar{% endif %}">
+                    <option value="__verificar__"{% if bloco.sel_equipe_destino not in equipe_destinos %} selected{% endif %}>-</option>
+                    {% for d in equipe_destinos %}<option value="{{ d }}"{% if d == bloco.sel_equipe_destino %} selected{% endif %}>{{ d }}</option>{% endfor %}
+                </select>
+            </span>
+            <small>Escolha para quem vai esta agenda (até existir uma agenda "Equipe Dra. Thalia").</small>
+        </div>
+        {% endif %}
+
         {% if bloco.tem_cirurgia and not bloco.participacao %}
         <div class="anestesista-box">
             <strong>🔵 Houve anestesista nesta cirurgia?</strong>
             <span class="campo-inline">
                 <select name="anest_nome_{{ forloop.counter0 }}" data-campo="anest_nome_{{ forloop.counter0 }}"
+                        data-pendencia="Anestesista — {{ bloco.profissional }}"
                         class="inp-classe campo-obrig{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} precisa-verificar{% endif %}">
                     <option value="__verificar__"{% if not bloco.sel_anest_nome or bloco.sel_anest_nome == '__verificar__' %} selected{% endif %}>-</option>
                     <option value="__sem__"{% if bloco.sel_anest_nome == '__sem__' %} selected{% endif %}>— sem anestesista —</option>
@@ -210,6 +233,7 @@
                         <span class="hon-fixo" title="{{ p.motivo_calculo }}">{{ p.honorario|moeda }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select name="cat_modo_{{ p.idx }}" data-campo="cat_modo_{{ p.idx }}"
+                                data-pendencia="Forma de pagamento (catarata) — {{ bloco.profissional }}"
                                 class="inp-classe campo-obrig{% if p.sel_cat_modo != 'avista' and p.sel_cat_modo != 'parcelado' %} precisa-verificar{% endif %}">
                             <option value="">à vista/parcelado?</option>
                             <option value="avista"{% if p.sel_cat_modo == 'avista' %} selected{% endif %}>À vista (30%)</option>
@@ -227,6 +251,7 @@
                                value="{{ p.honorario|valor2 }}"
                                placeholder="{% if p.status_calculo == 'taxa_sala' %}opcional{% else %}—{% endif %}"
                                data-exato="{{ p.honorario|valor_exato }}"
+                               {% if p.status_calculo == 'a_definir' %}data-adefinir="1" data-pendencia="Definir valor — {{ p.procedimento }}"{% endif %}
                                title="{{ p.motivo_calculo }}">
                         <label class="memo" title="Salvar este valor para '{{ p.procedimento }}' e reaplicar nos próximos meses (você escolhe para quais médicos)">
                             <input type="checkbox" class="chk-memo" name="memorizar_{{ p.idx }}" value="1"
@@ -243,6 +268,7 @@
                         <span class="badge badge-{{ p.classe|slug_classe }}">{{ p.classe }}</span>
                         {% elif p.status_calculo == 'catarata' or p.eh_catarata_part %}
                         <select name="cat_fellow_{{ p.idx }}" data-campo="cat_fellow_{{ p.idx }}"
+                                data-pendencia="Fellow na catarata — {{ bloco.profissional }}"
                                 class="inp-classe campo-obrig{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} precisa-verificar{% endif %}">
                             <option value="__verificar__"{% if not p.sel_cat_fellow or p.sel_cat_fellow == '__verificar__' %} selected{% endif %}>-</option>
                             <option value="__sem__"{% if p.sel_cat_fellow == '__sem__' %} selected{% endif %}>sem fellow</option>
@@ -250,6 +276,7 @@
                         </select>
                         {% else %}
                         <select name="classe_{{ p.idx }}" data-campo="classe_{{ p.idx }}"
+                                data-pendencia="Classificar — {{ p.procedimento }}"
                                 class="inp-classe{% if p.classe == classe_indefinida and p.honorario %} campo-obrig precisa-verificar{% endif %}">
                             {% for c in classes %}
                             {# "A classificar" aparece como "-" (pré-seleção obrigatória a preencher) #}
@@ -470,13 +497,56 @@
         var v = sel.value;
         return v === '__verificar__' || v === '' || v === INDEF;
     }
-    document.querySelectorAll('select.campo-obrig').forEach(function (sel) {
-        sel.addEventListener('change', function () {
-            var inv = invalido(sel);
-            sel.classList.toggle('precisa-verificar', inv);
-            if (!inv) sel.classList.remove('piscando');
+    // Caixa de pendências (esquerda): lista as alterações necessárias e some cada uma
+    // assim que o campo recebe um valor válido — em tempo real, sem Salvar.
+    var painel = document.getElementById('painel-pendencias');
+    var lista = painel && painel.querySelector('.pend-lista');
+    var vazio = painel && painel.querySelector('.pend-vazio');
+    var conta = painel && painel.querySelector('.pend-conta');
+    // Campos rastreados: selects obrigatórios + linhas "a definir" (valor em branco).
+    var campos = Array.prototype.slice.call(
+        document.querySelectorAll('select.campo-obrig, input.inp-hon[data-adefinir]'));
+    var itens = {};
+    function chave(el) { return el.getAttribute('data-campo') || el.name || ''; }
+    function pendente(el) {
+        return el.tagName === 'SELECT' ? invalido(el) : !(el.value || '').trim();
+    }
+    function atualizarPainel() {
+        if (!painel) return;
+        var n = 0;
+        campos.forEach(function (el) {
+            var k = chave(el);
+            if (pendente(el)) {
+                n++;
+                if (!itens[k]) {
+                    var li = document.createElement('li');
+                    li.textContent = el.getAttribute('data-pendencia') || k;
+                    li.addEventListener('click', function () {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        try { el.focus({ preventScroll: true }); } catch (e) {}
+                    });
+                    lista.appendChild(li); itens[k] = li;
+                }
+            } else if (itens[k]) {
+                itens[k].remove(); delete itens[k];
+            }
+        });
+        painel.hidden = campos.length === 0;
+        if (conta) conta.textContent = n;
+        if (vazio) vazio.hidden = n > 0;
+        if (lista) lista.hidden = n === 0;
+    }
+    campos.forEach(function (el) {
+        el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', function () {
+            if (el.tagName === 'SELECT') {
+                var inv = invalido(el);
+                el.classList.toggle('precisa-verificar', inv);
+                if (!inv) el.classList.remove('piscando');
+            }
+            atualizarPainel();
         });
     });
+    atualizarPainel();
     var el = document.getElementById('campos-pendentes-data');
     var ids = [];
     if (el) { try { ids = JSON.parse(el.textContent); } catch (e) {} }

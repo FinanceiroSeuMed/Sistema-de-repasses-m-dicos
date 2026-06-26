@@ -34,17 +34,8 @@ body {
     align-items: center;
     justify-content: space-between;
 }
-.marca { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--texto); }
-.marca-logo {
-    display: inline-grid;
-    place-items: center;
-    width: 40px; height: 40px;
-    border-radius: 10px;
-    background: var(--azul);
-    color: #fff;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-}
+.marca { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--texto); }
+.marca-logo-img { height: 38px; width: auto; display: block; }
 .marca-texto { font-weight: 700; font-size: 18px; line-height: 1.1; }
 .marca-texto small { display: block; font-weight: 500; font-size: 12px; color: var(--texto-suave); }
 .nav a {
@@ -302,6 +293,20 @@ select.precisa-verificar, .campo-erro { outline: 2px solid #e8b008; outline-offs
 .pendencias li { font-size: 13px; color: #6b4e00; margin: 2px 0; }
 .pendencias-topo { border-width: 2px; }
 .pendencias-dica { margin: 8px 0 0; font-size: 12px; color: #6b4e00; }
+/* Caixa de pendências flutuante à esquerda (atualiza em tempo real). */
+.painel-pendencias {
+    position: fixed; left: 14px; top: 96px; width: 232px; z-index: 850;
+    background: #fff7e6; border: 1px solid #ffe1a8; border-radius: 12px;
+    padding: 12px 14px; box-shadow: 0 6px 18px rgba(0,0,0,.10);
+    font-size: 13px; max-height: 72vh; overflow: auto;
+}
+.painel-pendencias h4 { margin: 0 0 8px; font-size: 14px; color: #946200; }
+.painel-pendencias .pend-lista { margin: 0; padding-left: 18px; }
+.painel-pendencias .pend-lista li { margin: 5px 0; cursor: pointer; color: #6b4e00; }
+.painel-pendencias .pend-lista li:hover { text-decoration: underline; }
+.painel-pendencias .pend-vazio { margin: 0; color: #1b7a43; font-weight: 600; }
+/* Em telas estreitas, esconde para não sobrepor o conteúdo. */
+@media (max-width: 1320px) { .painel-pendencias { display: none !important; } }
 /* Bloqueio de lote duplicado — vermelho de alerta, com botão de "exportar mesmo assim". */
 .bloqueio-duplicado { background: #fdeaea; border-color: #e7a3a3; }
 .bloqueio-duplicado h3 { color: #9b1c1c; }

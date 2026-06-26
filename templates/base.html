@@ -11,8 +11,8 @@
     <header class="topo">
         <div class="topo-conteudo">
             <a href="{% url 'repasses:home' %}" class="marca">
-                <span class="marca-logo">SM</span>
-                <span class="marca-texto">SeuMed <small>Repasses Médicos</small></span>
+                <img class="marca-logo-img" src="{% static 'img/logo-seumed.png' %}" alt="SeuMed">
+                <span class="marca-texto">- Repasses médicos</span>
             </a>
             {% if request.resolver_match %}{% with sec=request.resolver_match.url_name|secao %}
             <nav class="nav">
