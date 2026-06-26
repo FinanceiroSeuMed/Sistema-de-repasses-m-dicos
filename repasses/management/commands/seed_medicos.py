@@ -21,6 +21,10 @@ _RAZAO_OVERRIDES = {
     'keiti': 'CLINICA SHIRASU',
 }
 
+# Observações padronizadas pela diretoria (2026-06-27).
+_OBS_RESIDENTE = 'Não recebem em Oftalmo'
+_OBS_ANEST_CASSIANA = 'R$ 1.200,00 + R$ 200,00 por hora extra (mesma regra da Dra. Cassiana).'
+
 
 def _categoria_primaria(cat_norm: str) -> str:
     if 'residente' in cat_norm:
@@ -88,6 +92,13 @@ class Command(BaseCommand):
                     medico.razao_social = razao
             if rm.obs:
                 medico.regra_obs = rm.obs
+            # Observações padronizadas (diretoria 2026-06-27):
+            #  - TODOS os residentes: "Não recebem em Oftalmo".
+            #  - Anestesistas Suellen/Isabela/Marília: mesma regra da Dra. Cassiana.
+            if cat == Medico.CATEGORIA_RESIDENTE:
+                medico.regra_obs = _OBS_RESIDENTE
+            if medico.eh_anestesista and any(t in chave for t in ('suellen', 'isabela', 'marilia')):
+                medico.regra_obs = _OBS_ANEST_CASSIANA
             medico.save()
             existentes[chave] = medico
 
