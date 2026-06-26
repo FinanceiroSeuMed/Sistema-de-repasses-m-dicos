@@ -281,6 +281,33 @@ class Lote(models.Model):
         (a diretoria reverte o status do pagamento para liberar)."""
         return self.repasses.filter(status=Repasse.STATUS_PAGO).exists()
 
+    @property
+    def nome_repasse(self):
+        """Nome amigável no histórico: 'Repasse médico - DD/MM/AAAA' (data da exportação).
+        (Diretoria 2026-06-27 — não mostra mais o nome cru do arquivo importado.)"""
+        return f'Repasse médico - {self.criado_em:%d/%m/%Y}'
+
+    @property
+    def filiais_resumo(self):
+        """Filiais presentes no repasse: 'Todas' quando cobre TODAS as filiais conhecidas;
+        senão a lista por código (ex.: 'Matriz, PR2, PR3'). (Diretoria 2026-06-27.)"""
+        from .services.omie import FILIAL_CNPJ, _norm_clinica
+        por_codigo, clinicas = {}, set()
+        for ln in (self.linhas_pagar or []):
+            dep = (ln.get('departamento') or '').strip()
+            if dep:
+                curto = dep.split('. ', 1)[-1].strip()   # "07. PR2" -> "PR2"
+                if curto:
+                    por_codigo.setdefault(curto, dep)
+            clin = ln.get('clinica')
+            if clin:
+                clinicas.add(_norm_clinica(clin))
+        if not por_codigo:
+            return ''
+        if clinicas >= set(FILIAL_CNPJ):           # cobre todas as filiais físicas
+            return 'Todas'
+        return ', '.join(sorted(por_codigo, key=lambda k: por_codigo[k]))   # ordena por código
+
 
 class ArquivoSaida(models.Model):
     """Bytes de um arquivo gerado, guardados NO BANCO para re-download mesmo que a

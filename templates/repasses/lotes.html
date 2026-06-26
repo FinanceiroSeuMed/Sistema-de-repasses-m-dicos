@@ -39,7 +39,7 @@
             <tr>
                 <td>{{ l.id }}</td>
                 <td>{{ l.criado_em|date:"d/m/Y H:i" }}<br><small>{{ l.criado_por }}</small></td>
-                <td>{{ l.arquivo_nome|default:"—" }}<br><small>{{ l.unidade }}</small></td>
+                <td>{{ l.nome_repasse }}<br><small>Clínicas: {{ l.filiais_resumo|default:"—" }}</small></td>
                 <td>{% if l.periodo_inicio %}{{ l.periodo_inicio|date:"d/m" }}–{{ l.periodo_fim|date:"d/m" }}<br><small>{{ l.periodo_inicio|date:"Y" }}{% if l.periodo_fim|date:"Y" != l.periodo_inicio|date:"Y" %}/{{ l.periodo_fim|date:"Y" }}{% endif %}</small>{% else %}—{% endif %}</td>
                 <td class="num">{{ l.n_medicos }}</td>
                 <td class="num">{{ l.total_pagar|moeda }}</td>

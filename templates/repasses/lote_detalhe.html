@@ -5,9 +5,9 @@
 
 {% block content %}
 <section class="pagina-cabecalho">
-    <h1>Lote #{{ lote.id }}</h1>
+    <h1>{{ lote.nome_repasse }} <small style="font-weight:500;color:var(--texto-suave)">(lote #{{ lote.id }})</small></h1>
     <p class="subtitulo-escuro">
-        {{ lote.arquivo_nome|default:"(arquivo)" }} · {{ lote.unidade }} ·
+        Clínicas: {{ lote.filiais_resumo|default:"—" }} ·
         exportado em {{ lote.criado_em|date:"d/m/Y H:i" }} por {{ lote.criado_por }}.
     </p>
     <div class="acoes-lote">

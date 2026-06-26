@@ -520,6 +520,31 @@ class FellowSplitTests(TestCase):
         self.assertAlmostEqual(p.honorario, 3000.0)             # cirurgião 100%
 
 
+class LoteNomeFiliaisTests(TestCase):
+    """Nome amigável ('Repasse médico - data') e resumo de filiais no histórico."""
+
+    def _lote(self, linhas, tok='hist'):
+        from repasses.models import Lote
+        return Lote.objects.create(token=tok, linhas_pagar=linhas)
+
+    def test_nome_repasse(self):
+        l = self._lote([])
+        self.assertTrue(l.nome_repasse.startswith('Repasse médico - '))
+
+    def test_filiais_todas(self):
+        from repasses.services.omie import FILIAL_CNPJ
+        raw = ['Maringá - Matriz', 'Mandaguaçu', 'Paiçandu', 'Sarandi',
+               'Maringá - Av Brasil', 'Mandaguari', 'Maringá - Filial PR2 e PR3']
+        self.assertEqual(len(raw), len(FILIAL_CNPJ))
+        linhas = [{'clinica': c, 'departamento': '01. X'} for c in raw]
+        self.assertEqual(self._lote(linhas, 't1').filiais_resumo, 'Todas')
+
+    def test_filiais_lista_por_codigo(self):
+        linhas = [{'clinica': 'Maringá - Filial PR2 e PR3', 'departamento': '07. PR2'},
+                  {'clinica': 'Maringá - Matriz', 'departamento': '01. Matriz'}]
+        self.assertEqual(self._lote(linhas, 't2').filiais_resumo, 'Matriz, PR2')   # ordena por código
+
+
 class EquipeDestinoTests(TestCase):
     """Agenda 'Equipe Dr. Keiti' roteada para o médico escolhido (Keiti/Thalia)."""
 
