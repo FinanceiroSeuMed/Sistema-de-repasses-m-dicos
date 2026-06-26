@@ -545,6 +545,39 @@ class LoteNomeFiliaisTests(TestCase):
         self.assertEqual(self._lote(linhas, 't2').filiais_resumo, 'Matriz, PR2')   # ordena por código
 
 
+class VitrectomiaTests(TestCase):
+    """Vitrectomia Anterior tratada EXATAMENTE como catarata (mesmos valores)."""
+
+    def _regras(self):
+        from repasses.models import RegraRepasse
+        from repasses.management.commands.seed_regras import Command
+        cls = 'Cirurgias e Procedimentos'
+        RegraRepasse.objects.create(nome='Cirurgia de Catarata - Rodolpho', classe=cls,
+                                    val_sus='160', val_cisa='160')
+        RegraRepasse.objects.create(nome='Cirurgia de Catarata - Particular à vista', classe=cls,
+                                    val_particular='30%')
+        RegraRepasse.objects.create(nome='Vitrectomia Anterior', classe=cls,
+                                    val_particular='mesmo valor da catarata')
+        Command()._vitrectomia_como_catarata()
+
+    def test_seed_espelha_catarata_e_remove_bogus(self):
+        from repasses.models import RegraRepasse
+        self._regras()
+        self.assertFalse(RegraRepasse.objects.filter(nome_norm='vitrectomia anterior').exists())
+        esp = RegraRepasse.objects.get(nome='Vitrectomia Anterior - Rodolpho')
+        self.assertEqual((esp.val_sus, esp.val_cisa), ('160', '160'))
+
+    def test_engine_trata_como_catarata(self):
+        self._regras()
+        livro = regras.carregar_livro_padrao()
+        # particular -> precisa de à vista/parcelado + fellow (status catarata)
+        self.assertEqual(regras.calcular(livro, 'Vitrectomia Anterior', 'Particular',
+                                         5000.0, 'Dr. Rodolpho').status, regras.CATARATA)
+        # SUS -> valor fixo do médico (mesmo da catarata)
+        self.assertEqual(regras.calcular(livro, 'Vitrectomia Anterior', 'SUS',
+                                         5000.0, 'Dr. Rodolpho').honorario, 160.0)
+
+
 class EquipeDestinoTests(TestCase):
     """Agenda 'Equipe Dr. Keiti' roteada para o médico escolhido (Keiti/Thalia)."""
 

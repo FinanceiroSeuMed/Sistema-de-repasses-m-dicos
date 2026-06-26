@@ -406,16 +406,18 @@ def _valor_consulta(livro: LivroRegras, pagador: str):
     return None
 
 
-def _valor_catarata(livro: LivroRegras, medico_nome: str, pagador: str):
-    """Valor fixo de catarata para o médico (regras 'Cirurgia de Catarata - X').
+def _valor_catarata(livro: LivroRegras, medico_nome: str, pagador: str,
+                    prefixo: str = 'cirurgia de catarata'):
+    """Valor fixo por médico das regras que começam por `prefixo` (ex.: 'Cirurgia de
+    Catarata - X' ou 'Vitrectomia Anterior - X', que usam a mesma lógica).
 
     Casa por PALAVRA INTEIRA do nome (ex.: 'Ana P' casa 'Dra. Ana Paula'),
     evitando falsos positivos por substring.
     """
     nome_toks = set(normalizar(medico_nome).split())
     for regra in livro.procedimentos:
-        if regra.nome_norm.startswith('cirurgia de catarata'):
-            resto = set(regra.nome_norm.replace('cirurgia de catarata', '').split())
+        if regra.nome_norm.startswith(prefixo):
+            resto = set(regra.nome_norm.replace(prefixo, '').split())
             comuns = {t for t in (nome_toks & resto) if len(t) >= 3}
             if comuns:
                 tipo, val = _classificar_valor(regra.valores.get(pagador))
@@ -488,7 +490,15 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
                                 motivo=f'Componente de cirurgia ({componente}) — tratado à parte.')
 
     tokens_proc = _tokens(procedimento)
-    eh_catarata = ('catarata' in tokens_proc)
+    # A "Vitrectomia Anterior" é tratada EXATAMENTE como a catarata (à vista/parcelado,
+    # split cirurgião/assistente, anestesista, valor fixo por médico). (Diretoria 2026-06-27.)
+    if 'catarata' in tokens_proc:
+        prefixo_cat = 'cirurgia de catarata'
+    elif 'vitrectomia' in tokens_proc and 'anterior' in tokens_proc:
+        prefixo_cat = 'vitrectomia anterior'
+    else:
+        prefixo_cat = None
+    eh_catarata = prefixo_cat is not None
     # "faco" (abreviação) ou catarata: usado para a regra do fellow, mesmo quando
     # o procedimento é uma consulta/tono relacionada a faco.
     tem_faco = eh_catarata or ('faco' in tokens_proc)
@@ -507,7 +517,7 @@ def calcular(livro: LivroRegras, procedimento: str, convenio: str, valor, medico
     # Catarata: SUS/CISA têm valor fixo por médico; particular vai para a etapa de cirurgia
     if eh_catarata:
         if pagador in ('sus', 'cisa'):
-            val, tipo = _valor_catarata(livro, medico, pagador)
+            val, tipo = _valor_catarata(livro, medico, pagador, prefixo_cat)
             if tipo == FIXO:
                 # Faco que INCLUI consulta pré-operatória (nome traz "Incluso: ... Consulta"):
                 # repasse = faco base do médico NO PRÓPRIO CONVÊNIO + consulta do convênio.

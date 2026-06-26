@@ -34,9 +34,9 @@ body {
     align-items: center;
     justify-content: space-between;
 }
-.marca { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--texto); }
-.marca-logo-img { height: 38px; width: auto; display: block; }
-.marca-texto { font-weight: 700; font-size: 18px; line-height: 1.1; }
+.marca { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--texto); white-space: nowrap; }
+.marca-logo-img { height: 48px; width: auto; display: block; }
+.marca-texto { font-weight: 600; font-size: 14px; line-height: 1.1; white-space: nowrap; }
 .marca-texto small { display: block; font-weight: 500; font-size: 12px; color: var(--texto-suave); }
 .nav a {
     margin-left: 18px;
