@@ -1,0 +1,189 @@
+{% extends 'base.html' %}
+{% load repasses_extras %}
+
+{% block title %}Administração{% endblock %}
+
+{% block content %}
+<div class="admin-wrap" id="admin-wrap" data-aba="{{ aba }}">
+    <aside class="admin-nav">
+        <h3>Administração</h3>
+        <button type="button" class="admin-link" data-aba="medicos">Médicos</button>
+        <button type="button" class="admin-link" data-aba="regras">Regras</button>
+        <button type="button" class="admin-link" data-aba="correcoes">Correções</button>
+        <a class="admin-link admin-link-externo" href="/admin/">Avançada (admin)</a>
+    </aside>
+
+    <div class="admin-conteudo">
+        <div class="admin-topo">
+            <h1 class="admin-titulo"></h1>
+            <button type="button" id="btn-modo-edicao" class="botao botao-secundario-escuro">Modo de edição</button>
+        </div>
+        <p class="admin-modo-aviso" hidden>Você está no <strong>Modo de edição</strong> — altere os valores,
+            inclua/exclua e salve. Clique de novo em "Modo de edição" para voltar à visualização.</p>
+
+        {% if info %}<div class="alerta alerta-ok">{{ info }}</div>{% endif %}
+
+        {# ---------- MÉDICOS ---------- #}
+        <section class="admin-aba" data-aba="medicos">
+            <div class="cards-indicadores">
+                <div class="card-indicador"><span class="numero">{{ total_medicos }}</span><span class="rotulo">Médicos cadastrados</span></div>
+                <div class="card-indicador"><span class="numero">{{ total_medicos_ativos }}</span><span class="rotulo">Médicos ativos</span></div>
+            </div>
+            <div class="so-edicao acoes-exportar">
+                <a class="botao botao-primario" href="/admin/repasses/medico/add/">+ Adicionar médico</a>
+                <span class="dica">A edição detalhada do médico abre na administração.</span>
+            </div>
+            {% for rotulo, lista in grupos_medicos %}
+            <section class="bloco-medico">
+                <div class="bloco-cabecalho"><h2>{{ rotulo }} ({{ lista|length }})</h2></div>
+                <table class="tabela">
+                    <thead><tr><th>Médico</th><th>Papéis</th><th>Razão Social</th><th>Regra / observação</th><th class="so-edicao">Editar</th></tr></thead>
+                    <tbody>
+                        {% for m in lista %}
+                        <tr{% if not m.ativo %} class="linha-inativa"{% endif %}>
+                            <td>{{ m.nome }}</td>
+                            <td>
+                                {% if m.eh_fellow %}<span class="badge badge-preceptoria">Fellow</span>{% endif %}
+                                {% if m.eh_preceptor %}<span class="badge badge-taxa">Preceptor</span>{% endif %}
+                                {% if m.eh_anestesista %}<span class="badge badge-cirurgia">Anestesista</span>{% endif %}
+                            </td>
+                            <td>{{ m.razao_social|default:"—" }}</td>
+                            <td>{{ m.regra_obs|default:"—" }}</td>
+                            <td class="so-edicao"><a class="botao botao-mini" href="/admin/repasses/medico/{{ m.id }}/change/">Editar</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endfor %}
+        </section>
+
+        {# ---------- REGRAS ---------- #}
+        <section class="admin-aba" data-aba="regras" hidden>
+            <div class="alerta alerta-info">
+                Como escrever: <strong>em branco</strong> = não se aplica · <strong>"-"</strong> = não recebe ·
+                <strong>número</strong> = R$ (ex.: 25) · <strong>com %</strong> = percentual sobre o valor do paciente (ex.: 24%).
+            </div>
+            <div class="acoes-exportar">
+                <span class="campo-inline"><input type="search" id="busca-regra" placeholder="buscar procedimento..." class="inp-anest" style="width:220px"></span>
+                <button type="submit" form="form-regras" class="botao botao-primario so-edicao">Salvar regras</button>
+                <a class="botao botao-secundario-escuro so-edicao" href="/admin/repasses/regrarepasse/add/">+ Nova regra</a>
+            </div>
+            <form method="post" action="{% url 'repasses:regras_salvar' %}" id="form-regras">
+                {% csrf_token %}
+                {% for classe, itens in grupos_regras %}
+                <section class="bloco-medico">
+                    <div class="bloco-cabecalho"><h2>{{ classe }} ({{ itens|length }})</h2></div>
+                    <table class="tabela tabela-regras">
+                        <thead><tr><th>Procedimento</th><th class="num">Particular</th><th class="num">Convênio</th><th class="num">SUS</th><th class="num">OCI</th><th class="num">CISA</th><th>Ativa</th></tr></thead>
+                        <tbody>
+                            {% for r in itens %}
+                            <tr class="linha-regra" data-nome="{{ r.nome|lower }}">
+                                <td>{{ r.nome }}<input type="hidden" name="presente_{{ r.id }}" value="1"></td>
+                                <td class="num"><input class="inp-regra" name="val_particular_{{ r.id }}" value="{{ r.val_particular }}" readonly></td>
+                                <td class="num"><input class="inp-regra" name="val_convenio_{{ r.id }}" value="{{ r.val_convenio }}" readonly></td>
+                                <td class="num"><input class="inp-regra" name="val_sus_{{ r.id }}" value="{{ r.val_sus }}" readonly></td>
+                                <td class="num"><input class="inp-regra" name="val_oci_{{ r.id }}" value="{{ r.val_oci }}" readonly></td>
+                                <td class="num"><input class="inp-regra" name="val_cisa_{{ r.id }}" value="{{ r.val_cisa }}" readonly></td>
+                                <td><input type="checkbox" name="ativo_{{ r.id }}" value="1"{% if r.ativo %} checked{% endif %} disabled></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </section>
+                {% endfor %}
+            </form>
+        </section>
+
+        {# ---------- CORREÇÕES ---------- #}
+        <section class="admin-aba" data-aba="correcoes" hidden>
+            {% if classes %}
+            <section class="bloco-medico">
+                <h2>Classes memorizadas <small class="nota">(procedimento → classe, todos os médicos)</small></h2>
+                <table class="tabela">
+                    <thead><tr><th>Procedimento</th><th>Classe</th><th>Origem</th><th>Situação</th><th class="so-edicao">Ações</th></tr></thead>
+                    <tbody>
+                        {% for c in classes %}
+                        <tr{% if not c.ativo %} class="linha-inativa"{% endif %}>
+                            <td>{{ c.procedimento }}</td>
+                            <td><span class="badge badge-{{ c.classe|slug_classe }}">{{ c.classe }}</span></td>
+                            <td><small>{{ c.origem|default:"—" }}</small></td>
+                            <td>{% if c.ativo %}<span class="badge badge-ok">Ativa</span>{% else %}<span class="badge badge-zero">Desligada</span>{% endif %}</td>
+                            <td class="so-edicao"><div class="acoes-linha">
+                                <form method="post" action="{% url 'repasses:classe_toggle' c.pk %}">{% csrf_token %}<button class="botao botao-mini">{% if c.ativo %}Desligar{% else %}Ligar{% endif %}</button></form>
+                                <form method="post" action="{% url 'repasses:classe_remover' c.pk %}" onsubmit="return confirm('Remover esta classe memorizada?');">{% csrf_token %}<button class="botao botao-mini botao-perigo">Remover</button></form>
+                            </div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endif %}
+            <section class="bloco-medico">
+                <h2>Honorários memorizados</h2>
+                {% if correcoes %}
+                <table class="tabela">
+                    <thead><tr><th>Procedimento</th><th>Convênio</th><th>Médico</th><th class="num">Valor</th><th>Situação</th><th class="so-edicao">Ações</th></tr></thead>
+                    <tbody>
+                        {% for c in correcoes %}
+                        <tr{% if not c.ativo %} class="linha-inativa"{% endif %}>
+                            <td>{{ c.procedimento }}</td>
+                            <td>{{ c.convenio|default:"— qualquer —" }}</td>
+                            <td>{{ c.medico|default:"— todos —" }}</td>
+                            <td class="num">{{ c.valor_legivel }}</td>
+                            <td>{% if c.ativo %}<span class="badge badge-ok">Ativa</span>{% else %}<span class="badge badge-zero">Desligada</span>{% endif %}</td>
+                            <td class="so-edicao"><div class="acoes-linha">
+                                <form method="post" action="{% url 'repasses:correcao_toggle' c.pk %}">{% csrf_token %}<button class="botao botao-mini">{% if c.ativo %}Desligar{% else %}Ligar{% endif %}</button></form>
+                                <form method="post" action="{% url 'repasses:correcao_remover' c.pk %}" onsubmit="return confirm('Remover esta correção?');">{% csrf_token %}<button class="botao botao-mini botao-perigo">Remover</button></form>
+                            </div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}<p class="nota">Nenhum honorário memorizado ainda.</p>{% endif %}
+            </section>
+        </section>
+    </div>
+</div>
+
+<script>
+(function () {
+    var wrap = document.getElementById('admin-wrap');
+    var titulos = { medicos: 'Médicos', regras: 'Preços / Regras', correcoes: 'Correções memorizadas' };
+    var elTitulo = wrap.querySelector('.admin-titulo');
+    function mostrar(aba) {
+        wrap.querySelectorAll('.admin-aba').forEach(function (s) { s.hidden = (s.dataset.aba !== aba); });
+        wrap.querySelectorAll('.admin-nav .admin-link').forEach(function (b) {
+            if (b.dataset.aba) b.classList.toggle('ativo', b.dataset.aba === aba);
+        });
+        elTitulo.textContent = titulos[aba] || 'Administração';
+    }
+    wrap.querySelectorAll('.admin-nav .admin-link[data-aba]').forEach(function (b) {
+        b.addEventListener('click', function () { mostrar(b.dataset.aba); });
+    });
+    mostrar(wrap.dataset.aba || 'medicos');
+
+    // Modo de edição: libera os campos e mostra os botões de incluir/excluir.
+    var btn = document.getElementById('btn-modo-edicao');
+    var aviso = wrap.querySelector('.admin-modo-aviso');
+    btn.addEventListener('click', function () {
+        var on = !wrap.classList.contains('editando');
+        wrap.classList.toggle('editando', on);
+        btn.classList.toggle('botao-primario', on);
+        btn.textContent = on ? 'Sair do modo de edição' : 'Modo de edição';
+        if (aviso) aviso.hidden = !on;
+        wrap.querySelectorAll('#form-regras .inp-regra').forEach(function (i) { i.readOnly = !on; });
+        wrap.querySelectorAll('#form-regras input[type=checkbox]').forEach(function (i) { i.disabled = !on; });
+    });
+
+    // Busca nas regras.
+    var busca = document.getElementById('busca-regra');
+    if (busca) busca.addEventListener('input', function () {
+        var q = busca.value.trim().toLowerCase();
+        wrap.querySelectorAll('tr.linha-regra').forEach(function (tr) {
+            tr.style.display = (!q || tr.dataset.nome.indexOf(q) > -1) ? '' : 'none';
+        });
+    });
+})();
+</script>
+{% endblock %}

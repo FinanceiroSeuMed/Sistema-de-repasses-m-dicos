@@ -23,6 +23,7 @@ urlpatterns = [
     path('lotes/<int:pk>/excluir/', views.lote_excluir, name='lote_excluir'),
     path('lotes/<int:pk>/baixar/<str:nome>', views.baixar_lote, name='baixar_lote'),
     path('lotes/<int:pk>/baixar-zip/', views.baixar_lote_zip, name='baixar_lote_zip'),
+    path('administracao/', views.administracao, name='administracao'),
     path('regras/', views.regras_lista, name='regras'),
     path('regras/salvar/', views.regras_salvar, name='regras_salvar'),
     path('correcoes/', views.correcoes_lista, name='correcoes'),

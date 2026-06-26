@@ -46,14 +46,14 @@
                receber) e os repasses em PDF/Excel.</p>
         </a>
 
-        <a href="{% url 'repasses:medicos' %}" class="card-modulo pronto card-link">
+        <a href="{% url 'repasses:administracao' %}?aba=medicos" class="card-modulo pronto card-link">
             <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
             <h3>Cadastro de Médicos</h3>
             <p>Fonte única dos profissionais: categoria, papéis (fellow, anestesista,
                preceptor) e razão social.</p>
         </a>
 
-        <a href="{% url 'repasses:regras' %}" class="card-modulo pronto card-link">
+        <a href="{% url 'repasses:administracao' %}?aba=regras" class="card-modulo pronto card-link">
             <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
             <h3>Preços / Regras</h3>
             <p>Consulte e <strong>edite</strong> o valor de repasse de cada procedimento
@@ -67,7 +67,7 @@
                pagamento</strong> (gerado, pago) e veja a auditoria dos ajustes.</p>
         </a>
 
-        <a href="{% url 'repasses:correcoes' %}" class="card-modulo pronto card-link">
+        <a href="{% url 'repasses:administracao' %}?aba=correcoes" class="card-modulo pronto card-link">
             <div class="card-modulo-topo"><span class="tag tag-pronto">Disponível</span></div>
             <h3>Correções memorizadas</h3>
             <p>Os ajustes manuais que o sistema <strong>lembra e reaplica sozinho</strong>

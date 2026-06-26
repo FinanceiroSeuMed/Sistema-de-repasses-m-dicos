@@ -11,6 +11,8 @@ _SECAO = {
     'relatorio_mensal': 'relatorio',
     'regras': 'regras', 'regras_salvar': 'regras',
     'correcoes': 'correcoes', 'correcao_toggle': 'correcoes', 'correcao_remover': 'correcoes',
+    'administracao': 'administracao',
+    'classe_toggle': 'administracao', 'classe_remover': 'administracao',
 }
 
 

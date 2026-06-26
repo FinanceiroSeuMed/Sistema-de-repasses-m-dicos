@@ -17,14 +17,11 @@
             {% if request.resolver_match %}{% with sec=request.resolver_match.url_name|secao %}
             <nav class="nav">
                 <a href="{% url 'repasses:home' %}"{% if sec == 'home' %} class="ativo"{% endif %}>Início</a>
-                <a href="{% url 'repasses:medicos' %}"{% if sec == 'medicos' %} class="ativo"{% endif %}>Médicos</a>
                 <a href="{% url 'repasses:importar' %}"{% if sec == 'importar' %} class="ativo"{% endif %}>Importar</a>
                 {% if tem_edicao %}<a href="{% url 'repasses:continuar_edicao' %}" class="nav-edicao" title="Continuar o repasse em edição">Em edição</a>{% endif %}
                 <a href="{% url 'repasses:lotes' %}"{% if sec == 'lotes' %} class="ativo"{% endif %}>Histórico</a>
                 <a href="{% url 'repasses:relatorio_mensal' %}"{% if sec == 'relatorio' %} class="ativo"{% endif %}>Relatório mensal</a>
-                <a href="{% url 'repasses:regras' %}"{% if sec == 'regras' %} class="ativo"{% endif %}>Regras</a>
-                <a href="{% url 'repasses:correcoes' %}"{% if sec == 'correcoes' %} class="ativo"{% endif %}>Correções</a>
-                <a href="/admin/">Administração</a>
+                <a href="{% url 'repasses:administracao' %}"{% if sec == 'administracao' or sec == 'medicos' or sec == 'regras' or sec == 'correcoes' %} class="ativo"{% endif %}>Administração</a>
             </nav>
             {% endwith %}{% endif %}
         </div>

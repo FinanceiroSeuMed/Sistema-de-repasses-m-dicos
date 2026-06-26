@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from .forms import ImportarMedPlusForm
 from .models import (ArquivoSaida, ClasseMemorizada, CorrecaoMemorizada, Lote, Medico,
@@ -1512,20 +1513,28 @@ def correcoes_lista(request):
     })
 
 
+def _voltar_correcoes(request):
+    """Volta à Administração unificada (aba Correções) se a ação veio de lá; senão à
+    página de Correções."""
+    if '/administracao' in request.META.get('HTTP_REFERER', ''):
+        return redirect(reverse('repasses:administracao') + '?aba=correcoes')
+    return redirect('repasses:correcoes')
+
+
 def correcao_toggle(request, pk):
     """Liga/desliga uma correção (sem apagar — fica o histórico)."""
     if request.method == 'POST':
         c = get_object_or_404(CorrecaoMemorizada, pk=pk)
         c.ativo = not c.ativo
         c.save()
-    return redirect('repasses:correcoes')
+    return _voltar_correcoes(request)
 
 
 def correcao_remover(request, pk):
     """Remove definitivamente uma correção memorizada."""
     if request.method == 'POST':
         CorrecaoMemorizada.objects.filter(pk=pk).delete()
-    return redirect('repasses:correcoes')
+    return _voltar_correcoes(request)
 
 
 def classe_toggle(request, pk):
@@ -1534,17 +1543,49 @@ def classe_toggle(request, pk):
         c = get_object_or_404(ClasseMemorizada, pk=pk)
         c.ativo = not c.ativo
         c.save()
-    return redirect('repasses:correcoes')
+    return _voltar_correcoes(request)
 
 
 def classe_remover(request, pk):
     """Remove definitivamente uma classe memorizada."""
     if request.method == 'POST':
         ClasseMemorizada.objects.filter(pk=pk).delete()
-    return redirect('repasses:correcoes')
+    return _voltar_correcoes(request)
 
 
 # --- Regras de repasse (geridas no sistema) -----------------------------------
+
+def administracao(request):
+    """Administração unificada: Médicos, Regras e Correções num só lugar (side-nav à
+    esquerda, conteúdo numa caixa) e com 'Modo de edição' na mesma tela. (Diretoria
+    2026-06-27.)"""
+    todos_med = list(Medico.objects.all())
+    grupos_med = []
+    for codigo, rotulo in Medico.CATEGORIA_CHOICES:
+        qs = [m for m in todos_med if m.categoria == codigo]
+        if qs:
+            grupos_med.append((rotulo, qs))
+    todas_reg = list(RegraRepasse.objects.all())
+    grupos_reg = []
+    for classe, _rotulo in RegraRepasse.CLASSE_CHOICES:
+        itens = [r for r in todas_reg if r.classe == classe]
+        if itens:
+            grupos_reg.append((classe, itens))
+    aba = request.GET.get('aba', 'medicos')
+    if aba not in ('medicos', 'regras', 'correcoes'):
+        aba = 'medicos'
+    return render(request, 'repasses/administracao.html', {
+        'aba': aba,
+        'grupos_medicos': grupos_med,
+        'total_medicos': len(todos_med),
+        'total_medicos_ativos': sum(1 for m in todos_med if m.ativo),
+        'categorias_medico': Medico.CATEGORIA_CHOICES,
+        'grupos_regras': grupos_reg,
+        'classes_regra': RegraRepasse.CLASSE_CHOICES,
+        'correcoes': list(CorrecaoMemorizada.objects.all()),
+        'classes': list(ClasseMemorizada.objects.all()),
+    })
+
 
 def regras_lista(request, info=None):
     """Consulta de preços / regras de honorário — listadas e editáveis aqui."""
@@ -1586,5 +1627,9 @@ def regras_salvar(request):
         if mudou:
             r.save()
             alteradas += 1
-    return regras_lista(request, info=(f'✓ {alteradas} regra(s) atualizada(s) — já valem para os próximos cálculos.'
-                                       if alteradas else 'Nada alterado.'))
+    msg = (f'{alteradas} regra(s) atualizada(s) — já valem para os próximos cálculos.'
+           if alteradas else 'Nada alterado.')
+    if '/administracao' in request.META.get('HTTP_REFERER', ''):
+        messages.success(request, msg)
+        return redirect(reverse('repasses:administracao') + '?aba=regras')
+    return regras_lista(request, info=msg)
