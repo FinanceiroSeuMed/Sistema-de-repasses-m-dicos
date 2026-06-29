@@ -100,6 +100,14 @@ class Procedimento:
                                      # valor derivado/digitado à parte, renderizada como só-leitura
     editavel: bool = False           # linha sintética COM campo de honorário próprio (ex.: fellow)
 
+    @property
+    def data_curta(self) -> str:
+        """Data abreviada DD/MM/AA (uma linha na tabela de revisão). Ex.: 14/04/2026 -> 14/04/26."""
+        if self.data:
+            return self.data.strftime('%d/%m/%y')
+        # fallback: encurta o ano de um texto "dd/mm/aaaa" (mantém qualquer outro formato)
+        return re.sub(r'\b(\d{1,2}/\d{1,2}/)\d{2}(\d{2})\b', r'\1\2', self.data_texto or '')
+
 
 @dataclass
 class BlocoMedico:

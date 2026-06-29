@@ -296,6 +296,79 @@ class OmieReceberTests(SimpleTestCase):
         self.assertGreater(linhas, 0)
 
 
+class OmiePagarCnpjTests(SimpleTestCase):
+    """Fornecedor do contas a pagar = CNPJ do médico; sem CNPJ usa razão + avisa."""
+
+    def _resultado(self, cnpj):
+        from datetime import date
+        from types import SimpleNamespace
+        p = medplus.Procedimento(
+            data=date(2026, 4, 14), data_texto='14/04/2026', paciente='Fulano',
+            procedimento='Consulta', convenio='Particular', quantidade=1,
+            valor=None, honorario_medplus=None, classe=medplus.CLASSE_EXAME)
+        p.status_calculo = 'calculado'; p.honorario = 100.0
+        b = medplus.BlocoMedico(profissional='Dr. Heric Sakamoto')
+        b.procedimentos = [p]; b.data = date(2026, 4, 14); b.clinica = 'Maringá - Matriz'
+        b.razao_social = 'HERIC MASSAAKI SAKAMOTO'; b.cnpj = cnpj
+        return SimpleNamespace(blocos=[b], anestesistas=[])
+
+    def test_fornecedor_e_cnpj(self):
+        from openpyxl import load_workbook
+        res = omie.gerar_contas_pagar(self._resultado('18.145.426/0001-07'),
+                                      settings.OMIE_PAGAR_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, '18.145.426/0001-07')
+        self.assertFalse(any('sem CNPJ' in p for p in res.pendencias))
+
+    def test_sem_cnpj_usa_razao_e_avisa(self):
+        from openpyxl import load_workbook
+        res = omie.gerar_contas_pagar(self._resultado(''), settings.OMIE_PAGAR_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, 'HERIC MASSAAKI SAKAMOTO')
+        self.assertTrue(any('sem CNPJ' in p for p in res.pendencias))
+
+
+class OmieReceberKeitiTests(SimpleTestCase):
+    """Repasse criado pelo sistema (Equipe Dr. Keiti) não avisa 'sem valor bruto'."""
+
+    def _rel(self, equipe_keiti):
+        from datetime import date
+        from types import SimpleNamespace
+        p = medplus.Procedimento(
+            data=date(2026, 4, 14), data_texto='14/04/2026', paciente='Fulano',
+            procedimento='Consulta', convenio='Particular', quantidade=1,
+            valor=None, honorario_medplus=None, classe=medplus.CLASSE_EXAME)
+        b = medplus.BlocoMedico(profissional='Dr. Keiti Fernando Shirasu')
+        b.procedimentos = [p]; b.data = date(2026, 4, 14); b.clinica = 'Maringá - Matriz'
+        b.equipe_keiti = equipe_keiti
+        return SimpleNamespace(blocos=[b], anestesistas=[])
+
+    def test_keiti_nao_avisa(self):
+        res = omie.gerar_contas_receber(self._rel(True), settings.OMIE_RECEBER_TEMPLATE)
+        self.assertFalse(any('sem valor bruto' in p for p in res.pendencias))
+
+    def test_medico_comum_avisa(self):
+        res = omie.gerar_contas_receber(self._rel(False), settings.OMIE_RECEBER_TEMPLATE)
+        self.assertTrue(any('sem valor bruto' in p for p in res.pendencias))
+
+
+class DataCurtaTests(SimpleTestCase):
+    """Data abreviada DD/MM/AA para a tabela de revisão (cabe em uma linha)."""
+
+    def _proc(self, data, texto):
+        return medplus.Procedimento(
+            data=data, data_texto=texto, paciente='', procedimento='', convenio='',
+            quantidade=1, valor=None, honorario_medplus=None)
+
+    def test_abrevia_pelo_date(self):
+        from datetime import date
+        self.assertEqual(self._proc(date(2026, 4, 14), '14/04/2026').data_curta, '14/04/26')
+
+    def test_fallback_encurta_texto(self):
+        self.assertEqual(self._proc(None, '14/04/2026').data_curta, '14/04/26')
+        self.assertEqual(self._proc(None, '').data_curta, '')
+
+
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
 class RelatorioMensalTests(SimpleTestCase):
     """Relatório mensal compilado por Dr. (formato Repasses em Aberto)."""

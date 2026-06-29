@@ -716,6 +716,7 @@ def _resolver_anestesistas(resultado, post):
             'indice': i,
             'anestesista': nome,
             'razao_social': m.razao_social if m else '',
+            'cnpj': m.cnpj if m else '',
             'cirurgiao': bloco.profissional,
             'clinica': getattr(bloco, 'clinica', '') or '',
             'subunidade': getattr(bloco, 'subunidade', ''),

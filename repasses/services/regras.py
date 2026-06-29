@@ -255,6 +255,7 @@ class Medico:
     categoria: str
     razao_social: str = ''
     obs: str = ''
+    cnpj: str = ''
 
 
 @dataclass
@@ -606,7 +607,8 @@ def carregar_livro_db() -> LivroRegras:
             'preceptor' if m.eh_preceptor else '',
             'anestesista' if m.eh_anestesista else '']))
         livro.medicos.append(Medico(nome=m.nome, categoria=cat,
-                                    razao_social=m.razao_social or '', obs=m.regra_obs or ''))
+                                    razao_social=m.razao_social or '', obs=m.regra_obs or '',
+                                    cnpj=m.cnpj or ''))
         if m.eh_preceptor and m.regra_obs:
             livro.lembretes_preceptoria.append(f'{m.nome}: {m.regra_obs}')
     return _indexar(livro)
@@ -644,6 +646,7 @@ def processar(resultado, livro: LivroRegras):
         bloco.medico_cadastro = medico.nome if medico else bloco.profissional
         if medico:
             bloco.razao_social = medico.razao_social
+            bloco.cnpj = medico.cnpj
             if 'preceptor' in medico.categoria.lower() and medico.obs:
                 bloco.lembrete = f'Repasse de preceptoria a lançar à parte: {medico.obs}'
         for p in bloco.procedimentos:

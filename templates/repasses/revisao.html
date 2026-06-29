@@ -214,7 +214,7 @@
                 <tr class="subgrupo"><td colspan="10"><span class="badge badge-{{ grupo|slug_subclasse }}">{{ grupo }}</span> <small>({{ linhas|length }})</small></td></tr>
                 {% for p in linhas %}
                 <tr{% if p.status_calculo == 'a_definir' %} class="linha-indefinida"{% endif %}>
-                    <td>{{ p.data_texto }}</td>
+                    <td>{{ p.data_curta }}</td>
                     <td>{{ p.hora }}</td>
                     <td>{{ p.paciente }}</td>
                     <td>{{ p.procedimento }}</td>

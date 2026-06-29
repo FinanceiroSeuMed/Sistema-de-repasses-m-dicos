@@ -34,7 +34,9 @@ class Medico(models.Model):
     categoria = models.CharField('Categoria', max_length=20, choices=CATEGORIA_CHOICES,
                                  default=CATEGORIA_MEDICO)
     razao_social = models.CharField('Razão Social', max_length=200, blank=True,
-                                    help_text='Usada como Fornecedor/Cliente na OMIE.')
+                                    help_text='Razão social do médico (PJ).')
+    cnpj = models.CharField('CNPJ', max_length=20, blank=True,
+                            help_text='CNPJ do médico (PJ) — é a CHAVE do Fornecedor no contas a pagar da OMIE.')
     regra_obs = models.CharField('Regra / observação da planilha', max_length=255, blank=True,
                                  help_text='Ex.: "R$ 800,00 /semana", "Não recebem em catarata".')
 

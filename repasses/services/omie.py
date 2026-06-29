@@ -211,9 +211,11 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     pendencias = []
     linhas = []
     for bloco in resultado.blocos:
-        nome_forn = bloco.razao_social or bloco.profissional
-        if not bloco.razao_social:
-            pendencias.append(f'{bloco.profissional}: sem Razão Social (usado o nome) — confira na OMIE.')
+        # Fornecedor (chave do a pagar na OMIE) = CNPJ do médico. (Diretoria 2026-06-28.)
+        nome_forn = getattr(bloco, 'cnpj', '') or bloco.razao_social or bloco.profissional
+        if not getattr(bloco, 'cnpj', ''):
+            pendencias.append(f'{bloco.profissional}: sem CNPJ no cadastro (usei "{nome_forn}") — '
+                              'confira na OMIE.')
         dia = bloco.data or ref
         venc = venc_dia10_mes_seguinte(dia)
         medico = _sem_sufixo(bloco.profissional)
@@ -254,7 +256,7 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
         # "Repasse 22/06 Dra. Isabela Miwa Maeda (Dr. Rodolpho)".
         obs = f'Repasse {dia.strftime("%d/%m")} {anest}' + (f' ({cirurgiao})' if cirurgiao else '')
         dep = departamento(a.get('clinica', ''), a.get('subunidade', '')) or a.get('clinica', '')
-        linhas.append({'nome': a.get('razao_social') or a.get('anestesista'),
+        linhas.append({'nome': a.get('cnpj') or a.get('razao_social') or a.get('anestesista'),
                        'categoria': CATEGORIA_ANESTESISTA, 'valor': a.get('valor', 0),
                        'registro': dia, 'vencimento': venc_dia10_mes_seguinte(dia),
                        'observacao': obs, 'departamento': dep})
@@ -328,11 +330,15 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
         # Departamento (com PR2/PR3 conforme a agenda) entra na chave — PR2 e PR3 saem
         # em linhas separadas mesmo na mesma clínica/dia/grupo.
         dep = departamento(clinica, getattr(bloco, 'subunidade', '')) or clinica
+        # Repasse criado pelo sistema (agenda "Equipe Dr. Keiti"): não tem valor bruto
+        # por natureza — não conta como pendência de "sem valor". (Diretoria 2026-06-28.)
+        eh_sistema = getattr(bloco, 'equipe_keiti', False)
         for p in bloco.procedimentos:
             if p.classe == medplus.CLASSE_PRECEPTORIA:
                 continue   # preceptoria é SÓ a pagar — não tem valor bruto nem avisa
             if p.valor is None:
-                sem_valor += 1
+                if not eh_sistema:
+                    sem_valor += 1
                 continue
             grupos[(bloco.data, clinica, dep, grupo_receber(p.convenio))] += p.valor
             # convênio que não casa em nenhum grupo (e não é taxa de sala) vai p/
