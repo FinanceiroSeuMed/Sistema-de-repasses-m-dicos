@@ -828,10 +828,17 @@ def salvar(request):
         raise Http404('Arquivo da importação não encontrado — refaça o upload.')
     _salvar_rascunho(token, request.POST)
     resultado, aviso, dados = _preparar_revisao(token)
-    info = ['✓ Alterações salvas. Pode continuar editando aos poucos — ficam guardadas '
-            'até você importar um novo repasse.']
+    # Prévia dos arquivos (por médico + OMIE) + possíveis erros da OMIE, para a pessoa
+    # conferir cobertura/erros logo ao salvar, sem precisar exportar. (Diretoria 2026-06-30.)
+    previa = _previa_arquivos(resultado)
+    previa_avisos = _resumir_pendencias(
+        omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE).pendencias
+        + omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE).pendencias)
+    info = ['Alterações salvas. Veja abaixo os arquivos que serão gerados (confira os '
+            'médicos e os avisos). Pode continuar editando — ficam guardadas até importar outro.']
     return render(request, 'repasses/revisao.html',
-                  _ctx_revisao(resultado, token, aviso, info=info, edicoes=dados))
+                  _ctx_revisao(resultado, token, aviso, info=info, edicoes=dados,
+                               previa=previa, previa_avisos=previa_avisos))
 
 
 def cadastrar_medicos(request):
@@ -937,7 +944,8 @@ def visualizar(request):
 
 
 def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', pendencias=None,
-                 info=None, edicoes=None, avisos=None, lote_id=None):
+                 info=None, edicoes=None, avisos=None, lote_id=None, previa=None,
+                 previa_avisos=None):
     # Contagem por SUBCLASSE (igual ao detalhamento abaixo e ao repasse) — antes o
     # topo somava Cirurgias + Procedimentos num número só ("Cirurgias" inflado) e
     # mostrava o total geral como "Procedimentos". (Diretoria 2026-06-24.)
@@ -956,6 +964,8 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'avisos': avisos or [],
         'edicoes': edicoes or {},
         'downloads': downloads or [],
+        'previa': previa or [],
+        'previa_avisos': previa_avisos or [],
         'pasta_saida': pasta_saida,
         'lote_id': lote_id,
         'qtd_cirurgias': qtd_cirurgias,
@@ -1110,6 +1120,71 @@ def _memorizar_classes(resultado, post):
             'automaticamente nos próximos lançamentos desse procedimento.']
 
 
+GRUPO_OMIE = 'Importação OMIE'   # subpasta/rotulagem dos arquivos OMIE (a pagar / a receber)
+_MESES_PT = ('janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho',
+             'agosto', 'setembro', 'outubro', 'novembro', 'dezembro')
+
+
+def _periodo_resultado(resultado):
+    """(menor, maior) data dos atendimentos do resultado; (None, None) se não houver."""
+    datas = [p.data for b in resultado.blocos for p in b.procedimentos if getattr(p, 'data', None)]
+    return (min(datas), max(datas)) if datas else (None, None)
+
+
+def _rotulo_periodo_dias(ini, fim):
+    """Faixa de dias p/ nome de zip: '27-29' (mesmo mês), '27' (1 dia),
+    '27-06_a_02-07' (meses diferentes). Vazio quando não há datas."""
+    if not ini or not fim:
+        return ''
+    if ini == fim:
+        return f'{ini.day:02d}'
+    if (ini.year, ini.month) == (fim.year, fim.month):
+        return f'{ini.day:02d}-{fim.day:02d}'
+    return f'{ini.day:02d}-{ini.month:02d}_a_{fim.day:02d}-{fim.month:02d}'
+
+
+def _rotulo_periodo_extenso(ini, fim):
+    """Faixa p/ nome de arquivo OMIE: '27-29 de Junho', '27 de Junho',
+    '27 de Junho a 02 de Julho'. Vazio quando não há datas."""
+    if not ini or not fim:
+        return ''
+    mes_ini = _MESES_PT[ini.month - 1].capitalize()
+    if ini == fim:
+        return f'{ini.day:02d} de {mes_ini}'
+    if (ini.year, ini.month) == (fim.year, fim.month):
+        return f'{ini.day:02d}-{fim.day:02d} de {mes_ini}'
+    mes_fim = _MESES_PT[fim.month - 1].capitalize()
+    return f'{ini.day:02d} de {mes_ini} a {fim.day:02d} de {mes_fim}'
+
+
+def _nome_omie(base, ini, fim):
+    """'OMIE_Contas_a_Pagar_27-29 de Junho.xlsx' (sem sufixo se não houver datas)."""
+    suf = _rotulo_periodo_extenso(ini, fim)
+    return f'{base}_{suf}.xlsx' if suf else f'{base}.xlsx'
+
+
+def _previa_arquivos(resultado):
+    """(grupo, arquivo) que a exportação vai gerar — só os NOMES (sem gerar bytes),
+    p/ a pessoa conferir após Salvar quais médicos têm repasse. Mesma nomenclatura
+    de _gerar_arquivos_por_dia — manter os dois em sincronia."""
+    ini, fim = _periodo_resultado(resultado)
+    out = [{'grupo': GRUPO_OMIE, 'arquivo': _nome_omie('OMIE_Contas_a_Pagar', ini, fim)},
+           {'grupo': GRUPO_OMIE, 'arquivo': _nome_omie('OMIE_Contas_a_Receber', ini, fim)}]
+    for bloco in resultado.blocos:
+        if not repasse.pagaveis(bloco):
+            continue
+        base = repasse.nome_base(bloco)
+        grupo = f'Repasse — {bloco.profissional}'
+        out.append({'grupo': grupo, 'arquivo': f'{base}.xlsx'})
+        out.append({'grupo': grupo, 'arquivo': f'{base}.pdf'})
+    for a in resultado.anestesistas:
+        base = repasse.nome_base_anestesista(a)
+        grupo = f'Anestesista — {a["anestesista"]}'
+        out.append({'grupo': grupo, 'arquivo': f'{base}.xlsx'})
+        out.append({'grupo': grupo, 'arquivo': f'{base}.pdf'})
+    return out
+
+
 def _gerar_arquivos_por_dia(resultado):
     """Gera os arquivos de saída.
 
@@ -1123,10 +1198,11 @@ def _gerar_arquivos_por_dia(resultado):
     """
     arquivos, pend = [], []
 
+    ini, fim = _periodo_resultado(resultado)
     pagar = omie.gerar_contas_pagar(resultado, settings.OMIE_PAGAR_TEMPLATE)
     receber = omie.gerar_contas_receber(resultado, settings.OMIE_RECEBER_TEMPLATE)
-    arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Pagar.xlsx', pagar.conteudo))
-    arquivos.append(('Importação OMIE', 'OMIE_Contas_a_Receber.xlsx', receber.conteudo))
+    arquivos.append((GRUPO_OMIE, _nome_omie('OMIE_Contas_a_Pagar', ini, fim), pagar.conteudo))
+    arquivos.append((GRUPO_OMIE, _nome_omie('OMIE_Contas_a_Receber', ini, fim), receber.conteudo))
     pend += pagar.pendencias + receber.pendencias
 
     for bloco in resultado.blocos:
@@ -1198,18 +1274,28 @@ def baixar_lote_zip(request, pk):
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         usados = {}
         for a in arquivos:
-            # agrupa por subpasta (Importação OMIE / Repasses por médico) e evita
-            # nomes repetidos no zip.
-            pasta = (a.grupo or '').strip().replace('/', '-') or 'Arquivos'
+            # Agrupa por TIPO de arquivo (não por médico): OMIE / PDF / XLSX —
+            # a diretoria separa os PDFs, as planilhas e os arquivos OMIE. (2026-06-30.)
+            ext = a.nome.rpartition('.')[2].lower()
+            if a.nome.startswith('OMIE') or (a.grupo or '') == GRUPO_OMIE:
+                pasta = 'OMIE'
+            elif ext == 'pdf':
+                pasta = 'PDF'
+            elif ext == 'xlsx':
+                pasta = 'XLSX'
+            else:
+                pasta = 'Outros'
             nome = f'{pasta}/{a.nome}'
             usados[nome] = usados.get(nome, 0) + 1
             if usados[nome] > 1:
-                base, _, ext = a.nome.rpartition('.')
-                nome = f'{pasta}/{base} ({usados[nome]}).{ext}' if ext else f'{pasta}/{a.nome} ({usados[nome]})'
+                base, _, ext2 = a.nome.rpartition('.')
+                nome = f'{pasta}/{base} ({usados[nome]}).{ext2}' if ext2 else f'{pasta}/{a.nome} ({usados[nome]})'
             zf.writestr(nome, bytes(a.conteudo))
     buf.seek(0)
-    rotulo = re.sub(r'[^\w.-]+', '_', (lote.arquivo_nome or f'lote_{pk}')).strip('_') or f'lote_{pk}'
-    return FileResponse(buf, as_attachment=True, filename=f'repasses_{rotulo}.zip')
+    # Nome do zip = "Repasses_Médicos_<faixa de dias>" (ex.: 27 a 29 de junho -> "27-29").
+    dias = _rotulo_periodo_dias(lote.periodo_inicio, lote.periodo_fim)
+    nome_zip = f'Repasses_Médicos_{dias}.zip' if dias else 'Repasses_Médicos.zip'
+    return FileResponse(buf, as_attachment=True, filename=nome_zip)
 
 
 # --- Histórico de lotes + auditoria -------------------------------------------

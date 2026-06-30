@@ -132,6 +132,35 @@
 </section>
 {% endif %}
 
+{# Prévia após "Salvar": mostra os arquivos que SERÃO gerados (por médico + OMIE) e
+   os possíveis erros, para conferir cobertura/erros sem precisar exportar. #}
+{% if previa and not downloads %}
+<section class="saidas saidas-previa">
+    <div class="bloco-cabecalho">
+        <h2>Arquivos que serão gerados</h2>
+    </div>
+    {% if previa_avisos %}
+    <ul class="previa-avisos">
+        {% for a in previa_avisos %}<li>{{ a }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <p class="nota">Prévia após salvar — confira se todos os médicos com atendimento aparecem
+        e se não há erros acima. Os arquivos só são criados quando você clicar em
+        <strong>Exportar</strong>.</p>
+    {% regroup previa by grupo as grupos_previa %}
+    {% for g in grupos_previa %}
+    <div class="saida-grupo">
+        <h4>{{ g.grouper }}</h4>
+        <div class="saidas-botoes">
+            {% for d in g.list %}
+            <span class="arquivo-previa">{{ d.arquivo }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</section>
+{% endif %}
+
 <form method="post" action="{% url 'repasses:exportar' %}" id="form-revisao">
     {% csrf_token %}
     <input type="hidden" name="token" value="{{ token }}">

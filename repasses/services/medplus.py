@@ -23,11 +23,13 @@ import pandas as pd
 
 CLASSE_CIRURGIA = 'Cirurgias e Procedimentos'
 CLASSE_EXAME = 'Exames e Consultas'
+CLASSE_LAUDO = 'Laudos'
 CLASSE_PRECEPTORIA = 'Preceptoria'
 CLASSE_TAXA = 'Taxas de Sala'
 CLASSE_INDEFINIDA = 'A classificar'
 
-CLASSES = [CLASSE_CIRURGIA, CLASSE_EXAME, CLASSE_PRECEPTORIA, CLASSE_TAXA, CLASSE_INDEFINIDA]
+CLASSES = [CLASSE_CIRURGIA, CLASSE_EXAME, CLASSE_LAUDO, CLASSE_PRECEPTORIA, CLASSE_TAXA,
+           CLASSE_INDEFINIDA]
 
 # Subclasses só para a VISUALIZAÇÃO (preview do site): "Cirurgias e Procedimentos"
 # se divide em Cirurgias vs Procedimentos (consultório: YAG/laser etc.). Na OMIE a
@@ -35,16 +37,19 @@ CLASSES = [CLASSE_CIRURGIA, CLASSE_EXAME, CLASSE_PRECEPTORIA, CLASSE_TAXA, CLASS
 SUBCLASSE_CIRURGIA = 'Cirurgias'
 SUBCLASSE_PROCEDIMENTO = 'Procedimentos'
 SUBCLASSE_EXAME = 'Exames e Consultas'
+SUBCLASSE_LAUDO = 'Laudos'
 SUBCLASSE_PRECEPTORIA = 'Preceptorias'
 SUBCLASSE_TAXA = 'Taxas de Sala'
 SUBCLASSE_INDEFINIDA = 'A classificar'
-SUBCLASSES = [SUBCLASSE_CIRURGIA, SUBCLASSE_PROCEDIMENTO, SUBCLASSE_EXAME,
+SUBCLASSES = [SUBCLASSE_CIRURGIA, SUBCLASSE_PROCEDIMENTO, SUBCLASSE_EXAME, SUBCLASSE_LAUDO,
               SUBCLASSE_PRECEPTORIA, SUBCLASSE_TAXA, SUBCLASSE_INDEFINIDA]
 
 # Palavras-chave para um PALPITE inicial de classificação. É provisório:
 # a classificação definitiva virá das regras (anexo 5) e poderá ser editada
 # pelo usuário linha a linha.
 _PALAVRAS_CLASSE = {
+    # Laudos primeiro: "Laudo de OCT" deve casar como Laudo, não como Exame ('oct').
+    CLASSE_LAUDO: ['laudo'],
     CLASSE_CIRURGIA: [
         'facoemulsificacao', 'capsulotomia', 'yag', 'iridotomia', 'iridectomia',
         'calazio', 'pterigio', 'blefaroplastia', 'ptose', 'entropio', 'ectropio',
@@ -287,6 +292,8 @@ def subclasse_preview(p) -> str:
         return SUBCLASSE_TAXA
     if p.classe == CLASSE_EXAME:
         return SUBCLASSE_EXAME
+    if p.classe == CLASSE_LAUDO:
+        return SUBCLASSE_LAUDO
     if p.classe == CLASSE_CIRURGIA:
         return SUBCLASSE_CIRURGIA if eh_cirurgia(p.procedimento) else SUBCLASSE_PROCEDIMENTO
     return SUBCLASSE_INDEFINIDA

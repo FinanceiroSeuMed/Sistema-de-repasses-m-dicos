@@ -28,13 +28,15 @@ from openpyxl import load_workbook
 
 from . import medplus, regras
 
-# Mapeamento classe -> categoria da OMIE (contas a pagar)
+# Mapeamento classe -> categoria da OMIE (contas a pagar). Textos confirmados pela
+# diretoria (2026-06-30) — têm de bater EXATO com as categorias cadastradas na OMIE.
 CATEGORIA_POR_CLASSE = {
     medplus.CLASSE_CIRURGIA: 'Repasse Oftalmologistas - Cirurgia',
-    medplus.CLASSE_EXAME: 'Repasse Oftalmologistas - Exame',
+    medplus.CLASSE_EXAME: 'Repasse Oftalmologistas - Consulta',
+    medplus.CLASSE_LAUDO: 'Repasse Laudos',
     medplus.CLASSE_PRECEPTORIA: 'Preceptoria',
 }
-CATEGORIA_ANESTESISTA = 'Repasses Anestesiologistas'
+CATEGORIA_ANESTESISTA = 'Repasse Anestesiologistas'
 
 # Taxa de sala NÃO entra no a pagar (só no a receber).
 CLASSES_FORA_DO_PAGAR = {medplus.CLASSE_TAXA}
@@ -270,6 +272,7 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
 RESUMO_CLASSE = {
     medplus.CLASSE_EXAME: 'Consultas e exames',
     medplus.CLASSE_CIRURGIA: 'Cirurgias e procedimentos',
+    medplus.CLASSE_LAUDO: 'Laudos',
     medplus.CLASSE_PRECEPTORIA: 'Preceptoria',
 }
 

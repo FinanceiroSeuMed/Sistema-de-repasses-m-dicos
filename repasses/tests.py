@@ -369,6 +369,67 @@ class DataCurtaTests(SimpleTestCase):
         self.assertEqual(self._proc(None, '').data_curta, '')
 
 
+class CategoriasOmieTests(SimpleTestCase):
+    """Categorias OMIE do a pagar (diretoria 2026-06-30) + classe Laudos."""
+
+    def test_categorias_por_classe(self):
+        self.assertEqual(omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_EXAME],
+                         'Repasse Oftalmologistas - Consulta')
+        self.assertEqual(omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_CIRURGIA],
+                         'Repasse Oftalmologistas - Cirurgia')
+        self.assertEqual(omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_LAUDO], 'Repasse Laudos')
+        self.assertEqual(omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_PRECEPTORIA], 'Preceptoria')
+        self.assertEqual(omie.CATEGORIA_ANESTESISTA, 'Repasse Anestesiologistas')
+
+    def test_laudo_palpite_e_subclasse(self):
+        # "Laudo de OCT" casa como Laudo (não como Exame, mesmo contendo 'oct').
+        self.assertEqual(medplus.classificar('Laudo de OCT'), medplus.CLASSE_LAUDO)
+        self.assertEqual(medplus.classificar('Consulta em Oftalmologia'), medplus.CLASSE_EXAME)
+        p = medplus.Procedimento(None, '', '', 'Laudo X', '', 1, None, None,
+                                 classe=medplus.CLASSE_LAUDO)
+        self.assertEqual(medplus.subclasse_preview(p), medplus.SUBCLASSE_LAUDO)
+
+    def test_laudo_vira_repasse_laudos_no_a_pagar(self):
+        from datetime import date
+        from types import SimpleNamespace
+        from openpyxl import load_workbook
+        p = medplus.Procedimento(
+            data=date(2026, 6, 27), data_texto='27/06/2026', paciente='F',
+            procedimento='Laudo de Campimetria', convenio='Particular', quantidade=1,
+            valor=None, honorario_medplus=None, classe=medplus.CLASSE_LAUDO)
+        p.status_calculo = 'calculado'; p.honorario = 50.0
+        b = medplus.BlocoMedico(profissional='Dr. Heric'); b.procedimentos = [p]
+        b.data = date(2026, 6, 27); b.clinica = 'Maringá - Matriz'
+        b.razao_social = ''; b.cnpj = '11.111.111/0001-11'
+        rel = SimpleNamespace(blocos=[b], anestesistas=[])
+        res = omie.gerar_contas_pagar(rel, settings.OMIE_PAGAR_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_CATEGORIA).value, 'Repasse Laudos')
+
+
+class PeriodoRotuloTests(SimpleTestCase):
+    """Rótulos de período p/ nomes dos arquivos OMIE e do zip de repasses."""
+
+    def test_rotulos(self):
+        from datetime import date
+        from repasses import views
+        ini, fim = date(2026, 6, 27), date(2026, 6, 29)
+        self.assertEqual(views._rotulo_periodo_dias(ini, fim), '27-29')
+        self.assertEqual(views._rotulo_periodo_extenso(ini, fim), '27-29 de Junho')
+        self.assertEqual(views._nome_omie('OMIE_Contas_a_Pagar', ini, fim),
+                         'OMIE_Contas_a_Pagar_27-29 de Junho.xlsx')
+        # um único dia
+        self.assertEqual(views._rotulo_periodo_dias(ini, ini), '27')
+        self.assertEqual(views._rotulo_periodo_extenso(ini, ini), '27 de Junho')
+        # meses diferentes
+        a, b = date(2026, 6, 30), date(2026, 7, 2)
+        self.assertEqual(views._rotulo_periodo_dias(a, b), '30-06_a_02-07')
+        self.assertEqual(views._rotulo_periodo_extenso(a, b), '30 de Junho a 02 de Julho')
+        # sem datas -> nome OMIE sem sufixo
+        self.assertEqual(views._nome_omie('OMIE_Contas_a_Receber', None, None),
+                         'OMIE_Contas_a_Receber.xlsx')
+
+
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, F22), 'amostra 22/06 ausente')
 class RelatorioMensalTests(SimpleTestCase):
     """Relatório mensal compilado por Dr. (formato Repasses em Aberto)."""
@@ -976,18 +1037,39 @@ class LoteHistoricoTests(TestCase):
         self.assertTrue(m.eh_anestesista)
 
     def test_baixar_tudo_zip(self):
+        import datetime
         import zipfile
         from repasses.models import ArquivoSaida
         lote = self._cria_lote()
+        lote.periodo_inicio = datetime.date(2026, 6, 27)
+        lote.periodo_fim = datetime.date(2026, 6, 29)
+        lote.save(update_fields=['periodo_inicio', 'periodo_fim'])
         ArquivoSaida.objects.create(lote=lote, grupo='Importação OMIE',
-                                    nome='OMIE_Contas_a_Pagar.xlsx', conteudo=b'PK-fake-1')
-        ArquivoSaida.objects.create(lote=lote, grupo='Repasses por médico',
+                                    nome='OMIE_Contas_a_Pagar_27-29 de Junho.xlsx', conteudo=b'PK-fake-1')
+        ArquivoSaida.objects.create(lote=lote, grupo='Repasse — Dr. Heric',
                                     nome='Dr. Heric 22-06.pdf', conteudo=b'PDF-fake-2')
+        ArquivoSaida.objects.create(lote=lote, grupo='Repasse — Dr. Heric',
+                                    nome='Dr. Heric 22-06.xlsx', conteudo=b'XLSX-fake-3')
         r = self.client.get(f'/lotes/{lote.id}/baixar-zip/')
         self.assertEqual(r.status_code, 200)
+        # nome do zip: "Repasses_Médicos_27-29.zip" (acento via filename*=UTF-8'')
+        disp = r['Content-Disposition']
+        self.assertIn('Repasses_M', disp)
+        self.assertIn('27-29', disp)
         conteudo = b''.join(r.streaming_content)
         with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
             nomes = zf.namelist()
-        self.assertEqual(len(nomes), 2)
-        self.assertTrue(any('Contas_a_Pagar' in n for n in nomes))
-        self.assertTrue(any(n.endswith('.pdf') for n in nomes))
+        self.assertEqual(len(nomes), 3)
+        # agrupado por TIPO (OMIE / PDF / XLSX), não por médico
+        self.assertTrue(any(n.startswith('OMIE/') for n in nomes))
+        self.assertTrue(any(n.startswith('PDF/') and n.endswith('.pdf') for n in nomes))
+        self.assertTrue(any(n.startswith('XLSX/') and n.endswith('.xlsx') for n in nomes))
+
+    def test_salvar_mostra_previa(self):
+        # Após Salvar, a revisão mostra a prévia dos arquivos que serão gerados.
+        lote = self._cria_lote()
+        self.client.post(f'/lotes/{lote.id}/reabrir/')      # restaura o upload no disco
+        r = self.client.post('/importar/salvar/', {'token': self.TOKEN})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Arquivos que serão gerados')
+        self.assertContains(r, 'OMIE_Contas_a_Pagar')

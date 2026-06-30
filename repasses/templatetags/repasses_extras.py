@@ -107,6 +107,7 @@ def slug_subclasse(valor):
         'Cirurgias': 'cirurgia',
         'Procedimentos': 'procedimento',
         'Exames e Consultas': 'exame',
+        'Laudos': 'laudo',
         'Preceptorias': 'preceptoria',
         'Taxas de Sala': 'taxa',
         'A classificar': 'indefinida',
@@ -119,6 +120,7 @@ def slug_classe(valor):
     mapa = {
         'Cirurgias e Procedimentos': 'cirurgia',
         'Exames e Consultas': 'exame',
+        'Laudos': 'laudo',
         'Preceptoria': 'preceptoria',
         'Taxas de Sala': 'taxa',
         'A classificar': 'indefinida',
