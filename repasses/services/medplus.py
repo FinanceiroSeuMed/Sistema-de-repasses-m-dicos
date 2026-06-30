@@ -263,11 +263,12 @@ def _para_data(valor):
 
 
 # Procedimentos da classe "Cirurgias e Procedimentos" que são CIRURGIAS de fato
-# (precisam de anestesista). Os de consultório (YAG/laser/capsulotomia/iridotomia)
-# NÃO entram no repasse do anestesista.
+# (precisam de anestesista). Os de consultório (YAG/laser/capsulotomia/iridotomia) e
+# as INJEÇÕES intravítreas (Avastin etc.) NÃO entram no repasse do anestesista —
+# injeção é só procedimento. A Vitrectomia É cirurgia e usa anestesista. (2026-06-30.)
 _CIRURGIAS_ANESTESIA = (
     'facoemulsificacao', 'facectomia', 'catarata', 'vitrectomia', 'blefaroplastia',
-    'ptose', 'entropio', 'ectropio', 'pterigio', 'transplante', 'injecao', 'intravitrea',
+    'ptose', 'entropio', 'ectropio', 'pterigio', 'transplante',
     'trabeculectomia', 'reconstrucao', 'tumor', 'exerese', 'cantoplastia', 'sondagem',
     'recobrimento', 'enucleacao', 'evisceracao', 'calazio', 'cirurgia',
 )

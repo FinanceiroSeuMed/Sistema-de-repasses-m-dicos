@@ -31,16 +31,23 @@
 </section>
 {% endif %}
 
-{% if bloqueio_duplicado %}
+{% if dup_atendimentos %}
 <section class="pendencias pendencias-topo bloqueio-duplicado">
-    <h3>Exportação bloqueada — possível lote DUPLICADO</h3>
-    <ul>{% for m in bloqueio_duplicado %}<li>{{ m }}</li>{% endfor %}</ul>
-    <p class="pendencias-dica">Estes atendimentos (mesmo período) já saíram em outro lote — confira para
-        <strong>não pagar 2×</strong>. Se tiver CERTEZA de que não é duplicado, confirme abaixo.</p>
-    <button type="submit" form="form-revisao" name="forcar_duplicado" value="1"
-            formaction="{% url 'repasses:exportar' %}" class="botao botao-secundario-escuro">
-        Exportar mesmo assim (não é duplicado)
-    </button>
+    <h3>{{ dup_total }} lançamento(s) já exportado(s) antes (idênticos)</h3>
+    <ul>{% for m in dup_atendimentos %}<li>{{ m }}</li>{% endfor %}</ul>
+    <p class="pendencias-dica">Estes atendimentos, com o <strong>mesmo valor</strong>, já saíram em outro
+        lote. Você pode <strong>removê-los desta exportação</strong> (exporta só o que é novo) ou
+        exportar tudo. Confira para <strong>não pagar 2×</strong>.</p>
+    <div class="saidas-botoes">
+        <button type="submit" form="form-revisao" name="remover_duplicados" value="1"
+                formaction="{% url 'repasses:exportar' %}" class="botao botao-primario">
+            Remover os duplicados e exportar
+        </button>
+        <button type="submit" form="form-revisao" name="forcar_duplicado" value="1"
+                formaction="{% url 'repasses:exportar' %}" class="botao botao-secundario-escuro">
+            Exportar tudo mesmo assim
+        </button>
+    </div>
 </section>
 {% endif %}
 

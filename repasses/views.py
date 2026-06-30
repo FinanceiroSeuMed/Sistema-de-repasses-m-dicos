@@ -1012,21 +1012,36 @@ def exportar(request):
                        'inclusive os "sem anestesista"/"sem fellow", para não passar nada batido.']
         return render(request, 'repasses/revisao.html', ctx)
 
-    # Bloqueia a exportação de lote DUPLICADO (mesmo período de atendimentos já
-    # exportado em outro lote), salvo confirmação explícita. (Diretoria 2026-06-26.)
-    if request.POST.get('forcar_duplicado') != '1':
-        dups = _lotes_duplicados(token, _fingerprints_pagaveis(resultado))
+    # Lançamentos DUPLICADOS: atendimentos idênticos (mesmo dia/médico/paciente/proc/
+    # convênio/VALOR) já exportados em outro lote. Em vez de travar, oferece REMOVER só
+    # os duplicados (exporta o que é novo) OU exportar tudo — assim importar o mês inteiro
+    # não trava pelos dias singulares já lançados. (Diretoria 2026-06-30.)
+    remover_dup = request.POST.get('remover_duplicados') == '1'
+    n_removidos = 0
+    if remover_dup:
+        n_removidos = _remover_duplicados(token, resultado)
+        if not (any(repasse.pagaveis(b) for b in resultado.blocos) or resultado.anestesistas):
+            ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
+            ctx['info'] = [f'Todos os {n_removidos} lançamento(s) já tinham sido exportados antes '
+                           '— nada novo para exportar neste arquivo.']
+            return render(request, 'repasses/revisao.html', ctx)
+    elif request.POST.get('forcar_duplicado') != '1':
+        dups = _atendimentos_duplicados(token, resultado)
         if dups:
             ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
-            ctx['bloqueio_duplicado'] = [
-                f'Lote #{o.id} ({o.arquivo_nome or "?"}, exportado em {o.criado_em:%d/%m/%Y}) '
-                f'— {n} atendimento(s) iguais.' for o, n in dups]
-            ctx['info'] = ['⛔ Exportação BLOQUEADA: estes atendimentos parecem duplicados '
-                           '(mesmo período já exportado). Confira para não pagar 2×.']
+            ctx['dup_atendimentos'] = [
+                f'{b.profissional} — {p.procedimento[:40]} '
+                f'({p.data_curta or p.data_texto}; R$ {p.honorario:.2f})' for b, p in dups[:40]]
+            ctx['dup_total'] = len(dups)
+            ctx['info'] = [f'{len(dups)} lançamento(s) já foram exportados antes (idênticos). '
+                           'Remova-os desta exportação ou confirme exportar tudo.']
             return render(request, 'repasses/revisao.html', ctx)
 
     info = _memorizar_correcoes(resultado, request.POST)
     info += _memorizar_classes(resultado, request.POST)
+    if n_removidos:
+        info.insert(0, f'{n_removidos} lançamento(s) duplicado(s) removido(s) desta exportação '
+                       '(já tinham saído em outro lote).')
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
@@ -1332,22 +1347,50 @@ def _fingerprints_pagaveis(resultado):
     return fps
 
 
-def _lotes_duplicados(token, fps, limiar=0.5):
-    """Lotes de OUTRO upload que já contêm a MAIORIA (>= limiar) destes atendimentos.
-    O fingerprint inclui a data COMPLETA (com ano), então o mesmo dia/mês de outro ano
-    NÃO casa. Devolve [(lote, n_repetidos)] — vazio se não há duplicidade relevante."""
-    if not fps:
+def _fingerprints_outros_lotes(token):
+    """Multiconjunto (Counter) das impressões digitais já exportadas em OUTROS lotes
+    (qualquer upload diferente deste token). O fingerprint inclui a data com ANO e o
+    VALOR, então só casa atendimento idêntico, do mesmo ano e mesmo valor."""
+    prior = Counter()
+    for outro in Lote.objects.exclude(token=token).only('fingerprints'):
+        prior.update(outro.fingerprints or [])
+    return prior
+
+
+def _atendimentos_duplicados(token, resultado):
+    """[(bloco, procedimento)] dos atendimentos PAGÁVEIS deste resultado que já saíram
+    IDÊNTICOS (mesmo fingerprint = mesmo dia/médico/paciente/procedimento/convênio/valor)
+    em outro lote. Multiconjunto: se o arquivo traz 2 iguais e só 1 já saiu, marca 1."""
+    prior = _fingerprints_outros_lotes(token)
+    if not prior:
         return []
-    novos = Counter(fps)
-    total = sum(novos.values())
-    dups = []
-    outros = (Lote.objects.exclude(token=token)
-              .only('id', 'arquivo_nome', 'criado_em', 'fingerprints'))
-    for outro in outros:
-        n = sum((novos & Counter(outro.fingerprints or [])).values())
-        if n and n >= max(1, round(total * limiar)):
-            dups.append((outro, n))
+    usados, dups = Counter(), []
+    for b in resultado.blocos:
+        for p in b.procedimentos:
+            if not (p.status_calculo == 'calculado' and (p.honorario or 0) > 0):
+                continue
+            fp = _fingerprint(p, b.profissional)
+            if usados[fp] < prior.get(fp, 0):
+                usados[fp] += 1
+                dups.append((b, p))
     return dups
+
+
+def _remover_duplicados(token, resultado):
+    """Remove do resultado os atendimentos idênticos já exportados antes (e os
+    anestesistas cujas cirurgias saíram todas). Devolve quantos atendimentos removeu."""
+    dups = _atendimentos_duplicados(token, resultado)
+    if not dups:
+        return 0
+    remover = {id(p) for _, p in dups}
+    for b in resultado.blocos:
+        b.procedimentos = [p for p in b.procedimentos if id(p) not in remover]
+    resultado.blocos = [b for b in resultado.blocos if b.procedimentos]
+    vivos = {id(p) for b in resultado.blocos for p in b.procedimentos}
+    resultado.anestesistas = [a for a in getattr(resultado, 'anestesistas', [])
+                              if not a.get('cirurgias')
+                              or any(id(c) in vivos for c in a['cirurgias'])]
+    return len(dups)
 
 
 def _auditoria_lote(resultado, dados):

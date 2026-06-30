@@ -84,9 +84,10 @@ NEGATIVO = 'negativo'        # "-" -> não recebe
 _PAGADORES = ('particular', 'convenio', 'sus', 'oci', 'cisa')
 
 # Convênios que devem ser tratados como Particular no cálculo do honorário.
-# Copel e Sanepar seguem a regra de particular (diretoria 2026-06-24).
+# Copel/Sanepar (2026-06-24) e Saúde Caixa/Postal Saúde/Mediservice (2026-06-30)
+# seguem a regra de particular. (Casa por trecho do nome normalizado do convênio.)
 _CONVENIOS_COMO_PARTICULAR = ('bradesco', 'parcerias', 'desconto', 'otica', 'amil',
-                              'copel', 'sanepar')
+                              'copel', 'sanepar', 'caixa', 'postal', 'mediservice')
 
 # palavras pouco informativas, ignoradas no casamento
 _STOP = {'a', 'o', 'de', 'da', 'do', 'com', 'e', 'c', 'em', 'por', '-', 'ao', 'mono'}

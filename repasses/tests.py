@@ -108,6 +108,10 @@ class MotorRegrasTests(SimpleTestCase):
         self.assertEqual(calc('Consulta em Oftalmologia', 'Sanepar', 150.0).honorario, part)
         self.assertEqual(regras.mapear_convenio('Copel'), 'particular')
         self.assertEqual(regras.mapear_convenio('Sanepar'), 'particular')
+        # Saúde Caixa, Postal Saúde e Mediservice também = particular (2026-06-30)
+        self.assertEqual(regras.mapear_convenio('Saúde Caixa'), 'particular')
+        self.assertEqual(regras.mapear_convenio('Postal Saúde'), 'particular')
+        self.assertEqual(regras.mapear_convenio('Mediservice'), 'particular')
 
     def test_faco_consulta_cisa_usa_base_cisa(self):
         # decisão da diretoria: CISA = base CISA (150) + consulta (25) = 175
@@ -513,9 +517,13 @@ class ParserUnitTests(SimpleTestCase):
 
     def test_eh_cirurgia(self):
         self.assertTrue(medplus.eh_cirurgia('Facoemulsificação + LIO'))
-        self.assertTrue(medplus.eh_cirurgia('Vitrectomia Posterior'))
+        self.assertTrue(medplus.eh_cirurgia('Vitrectomia Posterior'))   # usa anestesista
+        self.assertTrue(medplus.eh_cirurgia('Vitrectomia Anterior'))
         self.assertFalse(medplus.eh_cirurgia('Capsulotomia a YAG Laser'))
         self.assertFalse(medplus.eh_cirurgia('Consulta em Oftalmologia'))
+        # Injeção intravítrea é só procedimento — NÃO usa anestesista. (2026-06-30.)
+        self.assertFalse(medplus.eh_cirurgia('Injeção Intravítrea de Avastin'))
+        self.assertFalse(medplus.eh_cirurgia('Aplicação de injeção intravítrea'))
 
     def test_subclasse_preview(self):
         def p(nome, classe):
@@ -750,7 +758,7 @@ class DuplicidadeTests(TestCase):
             blocos.append(b)
         return SimpleNamespace(blocos=blocos)
 
-    def test_bloqueia_duplicado_e_libera_distinto(self):
+    def test_detecta_e_remove_duplicados_identicos(self):
         import datetime
         from repasses import views
         from repasses.models import Lote
@@ -758,14 +766,24 @@ class DuplicidadeTests(TestCase):
                             ('Dr. B', 'Exame', datetime.date(2026, 6, 16)))
         fps = views._fingerprints_pagaveis(rel)
         Lote.objects.create(token='lote-antigo', arquivo_nome='junho.xls', fingerprints=fps)
-        # outro upload com os MESMOS atendimentos -> duplicado
-        self.assertTrue(views._lotes_duplicados('novo-token', fps))
-        # re-exportar o MESMO upload (mesmo token) não bloqueia
-        self.assertFalse(views._lotes_duplicados('lote-antigo', fps))
+        # outro upload com os MESMOS atendimentos -> os 2 são duplicados idênticos
+        rel2 = self._rel_com(('Dr. A', 'Consulta', datetime.date(2026, 6, 16)),
+                             ('Dr. B', 'Exame', datetime.date(2026, 6, 16)))
+        rel2.anestesistas = []
+        self.assertEqual(len(views._atendimentos_duplicados('novo-token', rel2)), 2)
+        # remover esvazia o resultado (tudo já tinha saído)
+        self.assertEqual(views._remover_duplicados('novo-token', rel2), 2)
+        self.assertEqual(rel2.blocos, [])
+        # re-exportar o MESMO upload (mesmo token) NÃO acha duplicados
+        rel_mesmo = self._rel_com(('Dr. A', 'Consulta', datetime.date(2026, 6, 16)))
+        self.assertEqual(views._atendimentos_duplicados('lote-antigo', rel_mesmo), [])
+        # valor DIFERENTE não casa (o fingerprint inclui o valor)
+        rel_val = self._rel_com(('Dr. A', 'Consulta', datetime.date(2026, 6, 16)))
+        rel_val.blocos[0].procedimentos[0].valor = 999
+        self.assertEqual(views._atendimentos_duplicados('novo-token', rel_val), [])
         # mesmo dia/mês de OUTRO ano -> NÃO casa (fingerprint tem o ano)
-        rel2027 = self._rel_com(('Dr. A', 'Consulta', datetime.date(2027, 6, 16)),
-                                ('Dr. B', 'Exame', datetime.date(2027, 6, 16)))
-        self.assertFalse(views._lotes_duplicados('novo-token', views._fingerprints_pagaveis(rel2027)))
+        rel2027 = self._rel_com(('Dr. A', 'Consulta', datetime.date(2027, 6, 16)))
+        self.assertEqual(views._atendimentos_duplicados('novo-token', rel2027), [])
 
 
 class SeedNomeTests(SimpleTestCase):
