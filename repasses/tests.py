@@ -1052,10 +1052,11 @@ class LoteHistoricoTests(TestCase):
                                     nome='Dr. Heric 22-06.xlsx', conteudo=b'XLSX-fake-3')
         r = self.client.get(f'/lotes/{lote.id}/baixar-zip/')
         self.assertEqual(r.status_code, 200)
-        # nome do zip: "Repasses_Médicos_27-29.zip" (acento via filename*=UTF-8'')
+        # nome do zip: "Repasses_Médicos_27-29 de Junho.zip" (com o mês, como na OMIE)
         disp = r['Content-Disposition']
         self.assertIn('Repasses_M', disp)
         self.assertIn('27-29', disp)
+        self.assertIn('Junho', disp)
         conteudo = b''.join(r.streaming_content)
         with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
             nomes = zf.namelist()

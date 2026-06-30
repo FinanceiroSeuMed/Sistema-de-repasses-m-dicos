@@ -1292,9 +1292,10 @@ def baixar_lote_zip(request, pk):
                 nome = f'{pasta}/{base} ({usados[nome]}).{ext2}' if ext2 else f'{pasta}/{a.nome} ({usados[nome]})'
             zf.writestr(nome, bytes(a.conteudo))
     buf.seek(0)
-    # Nome do zip = "Repasses_Médicos_<faixa de dias>" (ex.: 27 a 29 de junho -> "27-29").
-    dias = _rotulo_periodo_dias(lote.periodo_inicio, lote.periodo_fim)
-    nome_zip = f'Repasses_Médicos_{dias}.zip' if dias else 'Repasses_Médicos.zip'
+    # Nome do zip = "Repasses_Médicos_<faixa> de <Mês>" (com o mês, igual aos arquivos
+    # OMIE), ex.: "Repasses_Médicos_27-29 de Junho". (Diretoria 2026-06-30.)
+    faixa = _rotulo_periodo_extenso(lote.periodo_inicio, lote.periodo_fim)
+    nome_zip = f'Repasses_Médicos_{faixa}.zip' if faixa else 'Repasses_Médicos.zip'
     return FileResponse(buf, as_attachment=True, filename=nome_zip)
 
 
