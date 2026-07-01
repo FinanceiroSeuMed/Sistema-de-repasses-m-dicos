@@ -39,3 +39,4 @@ Thumbs.db
 /dist/
 *.spec
 /dados/
+test-output.txt
