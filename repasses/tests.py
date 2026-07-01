@@ -523,6 +523,25 @@ class OciResidentesTests(TestCase):
         self.assertFalse([p for b in rel.blocos for p in b.procedimentos
                           if 'oci de residente' in (p.motivo_calculo or '').lower()])
 
+    def test_oci_integra_antes_do_dedup_nao_perde(self):
+        # Regressão (review): integrar o OCI no Dr. Alessander ANTES do dedup. Mesmo com
+        # um lote anterior contendo as fps dos OCI SOB O RESIDENTE (cenário que perdia o
+        # OCI), depois de integrar ele fica sob o Alessander (fingerprint muda) e o dedup
+        # não o remove — enquanto os duplicados de verdade (não-OCI) saem.
+        from repasses import views
+        from repasses.models import Lote
+        rel, oci_blocos, raw = self._rel_marcado()
+        fps_residente = views._fingerprints_pagaveis(rel)   # OCI ainda sob o residente
+        Lote.objects.create(token='lote-antigo-oci', fingerprints=fps_residente)
+        for b in oci_blocos:
+            b.oci_integra = 'sim'
+        # ORDEM CORRETA (como no exportar): finaliza (move p/ Alessander) e SÓ DEPOIS dedup
+        views._aplicar_oci_residentes(rel)
+        views._remover_duplicados('novo-token', rel)
+        ocis_alessander = [p for b in rel.blocos for p in b.procedimentos
+                           if 'alessander' in regras.normalizar(b.profissional)]
+        self.assertEqual(len(ocis_alessander), raw)   # todos os OCI sobrevivem no Alessander
+
 
 class ParserUnitTests(SimpleTestCase):
     """Funções puras do parser (sem arquivos)."""
@@ -911,6 +930,25 @@ class ReginaTests(SimpleTestCase):
         self.assertFalse(views._eh_regina_dinheiro('Equipe Dra. Regina'))
         self.assertFalse(views._eh_regina_dinheiro('Redientes Dra. Regina'))
         self.assertFalse(views._eh_regina_dinheiro('Dra. Isabela Miwa Maeda'))
+
+    def test_residente_regina_exige_cnpj(self):
+        from types import SimpleNamespace
+        from repasses import views
+        self.assertTrue(views._eh_residente_regina('Residente Dra. Regina'))
+        self.assertTrue(views._eh_residente_regina('Residentes Dra. Regina'))
+        self.assertFalse(views._eh_residente_regina('Dra. Regina'))   # indivíduo (dinheiro)
+        p = medplus.Procedimento(None, '', '', 'Facoemulsificação + LIO', 'Particular', 1,
+                                 None, None, classe=medplus.CLASSE_CIRURGIA)
+        p.honorario = 100.0; p.status_calculo = 'calculado'
+        b = medplus.BlocoMedico(profissional='Dr. Rodolpho'); b.procedimentos = [p]
+        rel = SimpleNamespace(blocos=[b])
+        # Residente Regina SEM CNPJ -> pendência obrigatória anest_cnpj_0
+        pend = dict(views._campos_pendentes(rel, {'anest_nome_0': 'Residente Dra. Regina'}))
+        self.assertIn('anest_cnpj_0', pend)
+        # com CNPJ -> sem pendência
+        ok = dict(views._campos_pendentes(rel, {'anest_nome_0': 'Residente Dra. Regina',
+                                                'anest_cnpj_0': '00.000.000/0001-00'}))
+        self.assertNotIn('anest_cnpj_0', ok)
 
 
 class KeitiOciEquipeTests(SimpleTestCase):

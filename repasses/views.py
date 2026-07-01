@@ -801,8 +801,11 @@ def _campos_pendentes(resultado, post):
                 pend.append((f'oci_integracao_{i}', f'OCI na agenda de {bloco.profissional}: integrar '
                              'no Dr. Alessander? (Sim/Não)'))
         if bloco.tem_cirurgia and not getattr(bloco, 'participacao', False):
-            if (post.get(f'anest_nome_{i}') or '').strip() in ('', _VERIFICAR):
+            nome_anest = (post.get(f'anest_nome_{i}') or '').strip()
+            if nome_anest in ('', _VERIFICAR):
                 pend.append((f'anest_nome_{i}', f'Anestesista de {bloco.profissional} — confirme (ou "sem anestesista").'))
+            elif _eh_residente_regina(nome_anest) and not (post.get(f'anest_cnpj_{i}') or '').strip():
+                pend.append((f'anest_cnpj_{i}', f'CNPJ da Residente Dra. Regina ({bloco.profissional}) — obrigatório para o a pagar.'))
         for p in bloco.procedimentos:
             if p.status_calculo == regras.CATARATA or getattr(p, 'eh_catarata_part', False):
                 if (post.get(f'cat_modo_{p.idx}') or '').strip() not in ('avista', 'parcelado'):
@@ -1079,10 +1082,18 @@ def exportar(request):
     info = _memorizar_correcoes(resultado, request.POST)
     info += _memorizar_classes(resultado, request.POST)
 
+    # Decisões da revisão são FINALIZADAS aqui, ANTES do dedup: OCI de residente integra no
+    # Dr. Alessander (ou é descartado) e a Equipe Dr. Keiti "Sem preceptor" sai. Tem de vir
+    # ANTES da remoção de duplicados para o dedup/fingerprint verem o estado final (OCI já
+    # no Alessander) e NUNCA removerem um OCI antes de integrá-lo — senão perde pagamento.
+    # (Mesma lição do fix das correções.) (Diretoria 2026-07-01.)
+    _aplicar_oci_residentes(resultado)
+    resultado.blocos = [b for b in resultado.blocos
+                        if not getattr(b, 'equipe_sem_preceptor', False)]
+
     # Lançamentos DUPLICADOS: atendimentos idênticos (mesmo dia/médico/paciente/proc/
     # convênio/VALOR) já exportados em outro lote. Em vez de travar, oferece REMOVER só
-    # os duplicados (exporta o que é novo) OU exportar tudo — assim importar o mês inteiro
-    # não trava pelos dias singulares já lançados. (Diretoria 2026-06-30.)
+    # os duplicados (exporta o que é novo) OU exportar tudo. (Diretoria 2026-06-30.)
     remover_dup = request.POST.get('remover_duplicados') == '1'
     n_removidos = 0
     if remover_dup:
@@ -1096,7 +1107,11 @@ def exportar(request):
     elif request.POST.get('forcar_duplicado') != '1':
         dups = _atendimentos_duplicados(token, resultado)
         if dups:
-            ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
+            # o resultado já foi FINALIZADO (blocos de residente/equipe removidos); para a
+            # tela da oferta manter o formulário intacto (mesmos índices dos campos),
+            # re-monta o resultado ORIGINAL da revisão só para renderizar.
+            resultado_form, aviso_form, dados_form = _preparar_revisao(token)
+            ctx = _ctx_revisao(resultado_form, token, aviso_form, edicoes=dados_form)
             ctx['dup_atendimentos'] = [
                 f'{b.profissional} — {p.procedimento[:40]} '
                 f'({p.data_curta or p.data_texto}; R$ {p.honorario:.2f})' for b, p in dups[:40]]
@@ -1108,13 +1123,6 @@ def exportar(request):
     if n_removidos:
         info.insert(0, f'{n_removidos} lançamento(s) duplicado(s) removido(s) desta exportação '
                        '(já tinham saído em outro lote).')
-
-    # Decisões que só valem na EXPORTAÇÃO (não afetam o índice dos campos da revisão):
-    # OCI de residente integra no Dr. Alessander (ou é descartado) e a Equipe Dr. Keiti
-    # marcada "Sem preceptor" sai (era só informativa para os residentes).
-    _aplicar_oci_residentes(resultado)
-    resultado.blocos = [b for b in resultado.blocos
-                        if not getattr(b, 'equipe_sem_preceptor', False)]
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
