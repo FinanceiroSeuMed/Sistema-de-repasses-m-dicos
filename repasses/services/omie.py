@@ -268,6 +268,16 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, pendencias)
 
 
+def gerar_contas_pagar_de_linhas(linhas, modelo_path) -> ResultadoSaida:
+    """Contas a pagar OMIE a partir de linhas JÁ PRONTAS (mesmo formato de _escrever:
+    nome/categoria/valor/registro/vencimento/observacao/departamento). Usado para a
+    preceptoria MENSAL, que não vem de um relatório da MedPlus."""
+    ordenadas = sorted(linhas, key=lambda x: (str(x['registro']),
+                                              x.get('departamento') or '', x['nome']))
+    conteudo, n = _escrever(modelo_path, ordenadas, COL_DEPARTAMENTO_PAGAR)
+    return ResultadoSaida('OMIE_Contas_a_Pagar.xlsx', conteudo, n, [])
+
+
 # Nome amigável da classe para o RESUMO do relatório mensal.
 RESUMO_CLASSE = {
     medplus.CLASSE_EXAME: 'Consultas e exames',

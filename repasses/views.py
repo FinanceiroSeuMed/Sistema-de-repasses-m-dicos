@@ -1509,9 +1509,62 @@ def lotes_lista(request):
     })
 
 
+def _ultimo_dia_mes(mes):
+    """date do último dia do mês 'YYYY-MM' (None se inválido)."""
+    import calendar
+    from datetime import date
+    try:
+        ano, m = int(mes[:4]), int(mes[5:7])
+        return date(ano, m, calendar.monthrange(ano, m)[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def _preceptores_mensais():
+    """[(Medico, valor)] dos preceptores com valor MENSAL — cadastro com obs '/mês'
+    (não '/semana'). A preceptoria SEMANAL continua sendo lançada na exportação diária;
+    a MENSAL é um valor fixo do cadastro, cobrado uma vez por mês. (Diretoria 2026-06-30.)"""
+    out = []
+    for md in Medico.objects.filter(eh_preceptor=True).order_by('nome'):
+        n = regras.normalizar(md.regra_obs or '')
+        if 'mes' in n and 'semana' not in n:
+            v = _num_money(md.regra_obs or '')
+            if v:
+                out.append((md, round(float(v), 2)))
+    return out
+
+
+def _linhas_preceptoria_relatorio(mes):
+    """Preceptoria mensal p/ o relatório: uma linha por preceptor no ÚLTIMO DIA do mês
+    (mesmo formato de omie.linhas_relatorio_pagar)."""
+    ult = _ultimo_dia_mes(mes)
+    if not ult:
+        return []
+    venc = omie.venc_dia10_mes_seguinte(ult)
+    cat = omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_PRECEPTORIA]
+    return [{'medico': md.nome, 'clinica': '', 'departamento': '',
+             'classe': medplus.CLASSE_PRECEPTORIA, 'resumo': 'Preceptoria', 'categoria': cat,
+             'valor': valor, 'data': ult.isoformat(), 'vencimento': venc.isoformat()}
+            for md, valor in _preceptores_mensais()]
+
+
+def _linhas_preceptoria_omie(mes):
+    """Preceptoria mensal no formato do a pagar OMIE (_escrever) — Fornecedor = CNPJ."""
+    ult = _ultimo_dia_mes(mes)
+    if not ult:
+        return []
+    venc = omie.venc_dia10_mes_seguinte(ult)
+    cat = omie.CATEGORIA_POR_CLASSE[medplus.CLASSE_PRECEPTORIA]
+    return [{'nome': md.cnpj or md.razao_social or md.nome, 'categoria': cat, 'valor': valor,
+             'registro': ult, 'vencimento': venc, 'departamento': '',
+             'observacao': f'Preceptoria mensal ({mes}) {md.nome}'}
+            for md, valor in _preceptores_mensais()]
+
+
 def relatorio_mensal(request):
-    """Compila os repasses (a pagar) de um MÊS num único xlsx, ordenado por Dr.,
-    no formato "Repasses em Aberto" (anexo da diretoria)."""
+    """Compila os repasses (a pagar) de um MÊS num único xlsx, ordenado por Dr., no
+    formato "Repasses em Aberto" (anexo da diretoria). Inclui a preceptoria MENSAL
+    (uma linha por preceptor no último dia do mês) e um a pagar OMIE só dela."""
     from .services import relatorio
     todas = []
     for l in Lote.objects.only('linhas_pagar'):
@@ -1519,8 +1572,17 @@ def relatorio_mensal(request):
     meses = sorted({(ln.get('data') or '')[:7] for ln in todas if ln.get('data')}, reverse=True)
     mes = request.GET.get('mes') or (meses[0] if meses else '')
     linhas_mes = [ln for ln in todas if (ln.get('data') or '').startswith(mes)] if mes else []
+    # Preceptoria MENSAL entra no relatório como 1 linha por preceptor no último dia do mês.
+    prec = _linhas_preceptoria_relatorio(mes) if mes else []
+    linhas_mes = linhas_mes + prec
 
-    if request.GET.get('baixar') and linhas_mes:
+    baixar = request.GET.get('baixar')
+    if baixar == 'omie_preceptoria' and prec:
+        res = omie.gerar_contas_pagar_de_linhas(_linhas_preceptoria_omie(mes),
+                                                settings.OMIE_PAGAR_TEMPLATE)
+        nome = f'OMIE_Contas_a_Pagar_Preceptoria_{relatorio.nome_mes(mes)}.xlsx'
+        return FileResponse(io.BytesIO(res.conteudo), as_attachment=True, filename=nome)
+    if baixar and linhas_mes:
         titulo = f'Repasses em Aberto - {relatorio.nome_mes(mes)}'
         conteudo = relatorio.gerar_relatorio_mensal(linhas_mes, titulo)
         return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=f'{titulo}.xlsx')
@@ -1538,6 +1600,7 @@ def relatorio_mensal(request):
         'medicos': [(k, round(v, 2)) for k, v in sorted(por_medico.items())],
         'total': round(sum(resumo.values()), 2),
         'n_linhas': len(linhas_mes),
+        'preceptoria_mensal': round(sum(v for _, v in _preceptores_mensais()), 2) if prec else 0,
     })
 
 

@@ -27,6 +27,10 @@
         {% if n_linhas %}
         <a class="botao botao-download" href="?mes={{ mes }}&baixar=1">Baixar relatório ({{ nome_mes }})</a>
         {% endif %}
+        {% if preceptoria_mensal %}
+        <a class="botao botao-download" href="?mes={{ mes }}&baixar=omie_preceptoria"
+           title="Contas a pagar da OMIE só com a preceptoria mensal (um lançamento por preceptor no último dia do mês)">Baixar OMIE — preceptoria mensal (R$ {{ preceptoria_mensal }})</a>
+        {% endif %}
     </form>
 </section>
 

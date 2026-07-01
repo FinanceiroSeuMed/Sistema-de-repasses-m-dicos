@@ -1092,3 +1092,38 @@ class LoteHistoricoTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'Arquivos que serão gerados')
         self.assertContains(r, 'OMIE_Contas_a_Pagar')
+
+
+class PreceptoriaMensalTests(TestCase):
+    """Preceptoria MENSAL (cadastro obs '/mês'): 1 linha no último dia do mês + OMIE."""
+
+    def test_ultimo_dia_mes(self):
+        import datetime
+        from repasses import views
+        self.assertEqual(views._ultimo_dia_mes('2026-06'), datetime.date(2026, 6, 30))
+        self.assertEqual(views._ultimo_dia_mes('2026-02'), datetime.date(2026, 2, 28))
+        self.assertEqual(views._ultimo_dia_mes('2028-02'), datetime.date(2028, 2, 29))
+        self.assertIsNone(views._ultimo_dia_mes(''))
+
+    def test_so_mensal_vira_linha_e_omie(self):
+        import datetime
+        from openpyxl import load_workbook
+        from repasses import views
+        from repasses.models import Medico
+        Medico.objects.create(nome='Dra. Tharcila', categoria='preceptor', eh_preceptor=True,
+                              regra_obs='R$ 1000,00 /mês', cnpj='17.357.063/0001-00')
+        Medico.objects.create(nome='Dr. Alessander', categoria='preceptor', eh_preceptor=True,
+                              regra_obs='R$ 800,00 /semana')   # SEMANAL -> não entra no mensal
+        self.assertEqual([m.nome for m, _ in views._preceptores_mensais()], ['Dra. Tharcila'])
+        # linha do relatório: último dia do mês, resumo Preceptoria
+        rel = views._linhas_preceptoria_relatorio('2026-06')
+        self.assertEqual(len(rel), 1)
+        self.assertEqual(rel[0]['data'], '2026-06-30')
+        self.assertEqual((rel[0]['valor'], rel[0]['resumo']), (1000.0, 'Preceptoria'))
+        # OMIE a pagar da preceptoria: Fornecedor = CNPJ, categoria Preceptoria, dia 30/06
+        oml = views._linhas_preceptoria_omie('2026-06')
+        self.assertEqual(oml[0]['registro'], datetime.date(2026, 6, 30))
+        res = omie.gerar_contas_pagar_de_linhas(oml, settings.OMIE_PAGAR_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, '17.357.063/0001-00')
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_CATEGORIA).value, 'Preceptoria')
