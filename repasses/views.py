@@ -1042,6 +1042,8 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         # Preceptores que podem receber a agenda "Equipe Dr. Keiti" + sentinela "Sem preceptor".
         'equipe_destinos': _equipe_destinos(),
         'sem_preceptor': _SEM_PRECEPTOR,
+        # Aviso persistente: dias úteis anteriores sem repasse exportado (lacunas).
+        'dias_faltantes': _dias_faltantes_fmt(),
     }
 
 
@@ -1562,6 +1564,32 @@ def _sync_repasses(lote, resultado):
             r.delete()
 
 
+def _dias_sem_repasse():
+    """Dias ÚTEIS (não-domingo) anteriores a HOJE, dentro do período coberto (últimos
+    ~60 dias), que ainda NÃO tiveram repasse exportado. Ex.: se hoje é 01/07 e foram
+    lançados 29 e 30/06 mas o último antes disso foi 25/06, avisa 26 e 27/06 (o 28/06 é
+    domingo, não conta). Serve de aviso persistente no histórico e na revisão.
+    (Diretoria 2026-07-01.)"""
+    from datetime import date, timedelta
+    dias = set(Repasse.objects.exclude(data__isnull=True)
+               .values_list('data', flat=True).distinct())
+    if not dias:
+        return []
+    hoje = date.today()
+    inicio = max(min(dias), hoje - timedelta(days=60))   # limita a lacunas recentes
+    faltantes, d = [], inicio
+    while d < hoje:
+        if d.weekday() != 6 and d not in dias:           # 6 = domingo (sem atendimento)
+            faltantes.append(d)
+        d += timedelta(days=1)
+    return faltantes
+
+
+def _dias_faltantes_fmt():
+    """Dias sem repasse exportado, já formatados 'DD/MM' — para o aviso persistente."""
+    return [d.strftime('%d/%m') for d in _dias_sem_repasse()]
+
+
 def lotes_lista(request):
     """Histórico de lotes processados, com o que ainda falta pagar."""
     lotes = list(Lote.objects.all())
@@ -1577,6 +1605,7 @@ def lotes_lista(request):
         'total': len(lotes),
         'total_pagar': sum((l.total_pagar for l in lotes), 0),
         'pendentes_total': pendentes_total,
+        'dias_faltantes': _dias_faltantes_fmt(),
     })
 
 

@@ -13,6 +13,14 @@
     </p>
 </section>
 
+{% if dias_faltantes %}
+<div class="alerta alerta-faltantes">
+    <strong>Atenção — dia(s) sem repasse exportado:</strong>
+    {{ dias_faltantes|slice:":15"|join:", " }}{% if dias_faltantes|length > 15 %} … e mais {{ dias_faltantes|length|add:"-15" }}{% endif %}.
+    Confira se faltou lançar esses dias (domingos não contam).
+</div>
+{% endif %}
+
 <section class="cards-indicadores">
     <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Lotes</span></div>
     <div class="card-indicador"><span class="numero">{{ total_pagar|moeda }}</span><span class="rotulo">Total a pagar (todos)</span></div>

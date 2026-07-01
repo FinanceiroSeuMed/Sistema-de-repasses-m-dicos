@@ -1229,3 +1229,32 @@ class AjusteMensalTests(TestCase):
         AjusteMensal.objects.create(ano_mes='2026-06', medico=m, valor=100)
         self.client.post('/relatorio-mensal/ajustes/', {'mes': '2026-06', f'ajuste_valor_{m.id}': ''})
         self.assertFalse(AjusteMensal.objects.filter(ano_mes='2026-06', medico=m).exists())
+
+
+class DiasFaltantesTests(TestCase):
+    """Aviso de dias úteis (não-domingo) anteriores sem repasse exportado."""
+
+    def test_lacuna_exclui_domingo_e_hoje(self):
+        import datetime
+        from repasses import views
+        from repasses.models import Lote, Repasse
+        hoje = datetime.date.today()
+        lote = Lote.objects.create(token='t-faltantes')
+        exportados = {hoje - datetime.timedelta(days=10), hoje - datetime.timedelta(days=2)}
+        for d in exportados:
+            Repasse.objects.create(lote=lote, medico='Dr. X', data=d, valor=100)
+        faltantes = views._dias_sem_repasse()
+        # esperado: dias úteis entre o 1º exportado e hoje (exclusivo), sem os exportados nem domingos
+        esperado, d = [], hoje - datetime.timedelta(days=10)
+        while d < hoje:
+            if d.weekday() != 6 and d not in exportados:
+                esperado.append(d)
+            d += datetime.timedelta(days=1)
+        self.assertEqual(faltantes, esperado)
+        self.assertFalse(any(x.weekday() == 6 for x in faltantes))   # nenhum domingo
+        self.assertNotIn(hoje, faltantes)                            # hoje nunca entra
+        self.assertNotIn(hoje - datetime.timedelta(days=2), faltantes)  # exportado não entra
+
+    def test_sem_repasse_nenhum_aviso(self):
+        from repasses import views
+        self.assertEqual(views._dias_sem_repasse(), [])
