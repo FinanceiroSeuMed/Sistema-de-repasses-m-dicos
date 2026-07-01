@@ -17,6 +17,7 @@ urlpatterns = [
     path('saidas/<str:pasta>/<str:arquivo>', views.baixar_saida, name='baixar_saida'),
     path('lotes/', views.lotes_lista, name='lotes'),
     path('relatorio-mensal/', views.relatorio_mensal, name='relatorio_mensal'),
+    path('relatorio-mensal/ajustes/', views.salvar_ajuste_mensal, name='salvar_ajuste_mensal'),
     path('lotes/<int:pk>/', views.lote_detalhe, name='lote_detalhe'),
     path('lotes/<int:pk>/status/', views.lote_status, name='lote_status'),
     path('lotes/<int:pk>/reabrir/', views.lote_reabrir, name='lote_reabrir'),

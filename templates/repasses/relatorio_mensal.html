@@ -27,12 +27,39 @@
         {% if n_linhas %}
         <a class="botao botao-download" href="?mes={{ mes }}&baixar=1">Baixar relatório ({{ nome_mes }})</a>
         {% endif %}
-        {% if preceptoria_mensal %}
-        <a class="botao botao-download" href="?mes={{ mes }}&baixar=omie_preceptoria"
-           title="Contas a pagar da OMIE só com a preceptoria mensal (um lançamento por preceptor no último dia do mês)">Baixar OMIE — preceptoria mensal (R$ {{ preceptoria_mensal }})</a>
+        {% if tem_fechamento %}
+        <a class="botao botao-download" href="?mes={{ mes }}&baixar=omie_fechamento"
+           title="Contas a pagar da OMIE do fechamento do mês: preceptoria mensal + ajustes (um lançamento por médico no último dia do mês)">Baixar OMIE — fechamento do mês (preceptoria + ajustes)</a>
         {% endif %}
     </form>
 </section>
+
+{% if mes %}
+<section class="bloco-medico">
+    <div class="bloco-cabecalho"><h2>Ajustes do mês (desconto / acréscimo por médico)</h2></div>
+    <p class="nota">Corrija valores lançados errado em meses anteriores: valor <strong>negativo</strong>
+        desconta, <strong>positivo</strong> acrescenta. Entra no total do relatório e no
+        <strong>contas a pagar OMIE</strong> do fechamento (botão acima). Deixe em branco para nenhum ajuste.
+        {% if total_ajustes %} <strong>Total de ajustes: {{ total_ajustes|moeda }}.</strong>{% endif %}</p>
+    <form method="post" action="{% url 'repasses:salvar_ajuste_mensal' %}">
+        {% csrf_token %}
+        <input type="hidden" name="mes" value="{{ mes }}">
+        <table class="tabela">
+            <thead><tr><th>Médico</th><th class="num">Valor (+ / −)</th><th>Motivo</th></tr></thead>
+            <tbody>
+                {% for m in medicos_ajuste %}
+                <tr>
+                    <td>{{ m.nome }}</td>
+                    <td class="num"><input type="text" class="inp-hon" name="ajuste_valor_{{ m.id }}" value="{{ m.valor }}" placeholder="0,00" style="width:110px;text-align:right"></td>
+                    <td><input type="text" class="inp-hon" name="ajuste_motivo_{{ m.id }}" value="{{ m.motivo }}" placeholder="motivo (opcional)" style="width:100%"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p style="margin-top:12px"><button type="submit" class="botao botao-download">Salvar ajustes de {{ nome_mes }}</button></p>
+    </form>
+</section>
+{% endif %}
 
 {% if n_linhas %}
 <div class="resumo-importacao">

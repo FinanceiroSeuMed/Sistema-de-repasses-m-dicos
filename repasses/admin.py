@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from .models import ClasseMemorizada, CorrecaoMemorizada, Lote, Medico, RegraRepasse, Repasse
+from .models import (AjusteMensal, ClasseMemorizada, CorrecaoMemorizada, Lote, Medico,
+                     RegraRepasse, Repasse)
+
+
+@admin.register(AjusteMensal)
+class AjusteMensalAdmin(admin.ModelAdmin):
+    list_display = ('ano_mes', 'medico', 'valor', 'motivo', 'atualizado_em')
+    list_filter = ('ano_mes',)
+    search_fields = ('medico__nome', 'motivo')
+    readonly_fields = ('criado_em', 'atualizado_em')
 
 
 @admin.register(Medico)

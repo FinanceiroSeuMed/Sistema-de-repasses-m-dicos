@@ -12,8 +12,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from .forms import ImportarMedPlusForm
-from .models import (ArquivoSaida, ClasseMemorizada, CorrecaoMemorizada, Lote, Medico,
-                     RegraRepasse, Repasse, RepasseRascunho)
+from .models import (AjusteMensal, ArquivoSaida, ClasseMemorizada, CorrecaoMemorizada,
+                     Lote, Medico, RegraRepasse, Repasse, RepasseRascunho)
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -1632,6 +1632,45 @@ def _linhas_preceptoria_omie(mes):
             for md, valor in _preceptores_mensais()]
 
 
+# Categoria OMIE do ajuste mensal (a diretoria confirma o rótulo exato na OMIE).
+_CATEGORIA_AJUSTE = 'Ajuste de Repasse'
+
+
+def _ajustes_mes(mes):
+    """Ajustes (!= 0) do mês, com o médico carregado."""
+    return list(AjusteMensal.objects.filter(ano_mes=mes).exclude(valor=0)
+                .select_related('medico').order_by('medico__nome'))
+
+
+def _linhas_ajuste_relatorio(mes):
+    """Ajustes do mês p/ o relatório: uma linha por médico no ÚLTIMO DIA do mês."""
+    ult = _ultimo_dia_mes(mes)
+    if not ult:
+        return []
+    venc = omie.venc_dia10_mes_seguinte(ult).isoformat()
+    return [{'medico': a.medico.nome, 'clinica': '', 'departamento': '', 'classe': 'Ajuste',
+             'resumo': 'Ajuste', 'categoria': _CATEGORIA_AJUSTE, 'valor': float(a.valor),
+             'data': ult.isoformat(), 'vencimento': venc, 'motivo': a.motivo}
+            for a in _ajustes_mes(mes)]
+
+
+def _linhas_ajuste_omie(mes):
+    """Ajustes do mês no formato do a pagar OMIE — Fornecedor = CNPJ. Valor pode ser
+    negativo (desconto)."""
+    ult = _ultimo_dia_mes(mes)
+    if not ult:
+        return []
+    venc = omie.venc_dia10_mes_seguinte(ult)
+    linhas = []
+    for a in _ajustes_mes(mes):
+        md = a.medico
+        obs = f'Ajuste ({mes}) {md.nome}' + (f' — {a.motivo}' if a.motivo else '')
+        linhas.append({'nome': md.cnpj or md.razao_social or md.nome, 'categoria': _CATEGORIA_AJUSTE,
+                       'valor': float(a.valor), 'registro': ult, 'vencimento': venc,
+                       'departamento': '', 'observacao': obs})
+    return linhas
+
+
 def relatorio_mensal(request):
     """Compila os repasses (a pagar) de um MÊS num único xlsx, ordenado por Dr., no
     formato "Repasses em Aberto" (anexo da diretoria). Inclui a preceptoria MENSAL
@@ -1643,15 +1682,17 @@ def relatorio_mensal(request):
     meses = sorted({(ln.get('data') or '')[:7] for ln in todas if ln.get('data')}, reverse=True)
     mes = request.GET.get('mes') or (meses[0] if meses else '')
     linhas_mes = [ln for ln in todas if (ln.get('data') or '').startswith(mes)] if mes else []
-    # Preceptoria MENSAL entra no relatório como 1 linha por preceptor no último dia do mês.
+    # Fechamento do mês: preceptoria MENSAL (1 linha por preceptor) + AJUSTES por médico
+    # (desconto/acréscimo de meses anteriores) — todos no último dia do mês.
     prec = _linhas_preceptoria_relatorio(mes) if mes else []
-    linhas_mes = linhas_mes + prec
+    ajustes = _linhas_ajuste_relatorio(mes) if mes else []
+    linhas_mes = linhas_mes + prec + ajustes
 
     baixar = request.GET.get('baixar')
-    if baixar == 'omie_preceptoria' and prec:
-        res = omie.gerar_contas_pagar_de_linhas(_linhas_preceptoria_omie(mes),
-                                                settings.OMIE_PAGAR_TEMPLATE)
-        nome = f'OMIE_Contas_a_Pagar_Preceptoria_{relatorio.nome_mes(mes)}.xlsx'
+    if baixar == 'omie_fechamento' and (prec or ajustes):
+        linhas_omie = _linhas_preceptoria_omie(mes) + _linhas_ajuste_omie(mes)
+        res = omie.gerar_contas_pagar_de_linhas(linhas_omie, settings.OMIE_PAGAR_TEMPLATE)
+        nome = f'OMIE_Contas_a_Pagar_Fechamento_{relatorio.nome_mes(mes)}.xlsx'
         return FileResponse(io.BytesIO(res.conteudo), as_attachment=True, filename=nome)
     if baixar and linhas_mes:
         titulo = f'Repasses em Aberto - {relatorio.nome_mes(mes)}'
@@ -1663,6 +1704,8 @@ def relatorio_mensal(request):
         v = float(ln.get('valor') or 0)
         resumo[ln.get('resumo') or 'Outros'] += v
         por_medico[ln.get('medico') or '—'] += v
+    # Ajustes já salvos por médico (para preencher o formulário de edição).
+    ajustes_por_medico = {a.medico_id: a for a in _ajustes_mes(mes)} if mes else {}
     return render(request, 'repasses/relatorio_mensal.html', {
         'meses': [(m, relatorio.nome_mes(m)) for m in meses],
         'mes': mes,
@@ -1672,7 +1715,36 @@ def relatorio_mensal(request):
         'total': round(sum(resumo.values()), 2),
         'n_linhas': len(linhas_mes),
         'preceptoria_mensal': round(sum(v for _, v in _preceptores_mensais()), 2) if prec else 0,
+        'tem_fechamento': bool(prec or ajustes),
+        # Formulário de ajustes: todos os médicos + o ajuste salvo (se houver) de cada um.
+        'medicos_ajuste': [{'id': m.id, 'nome': m.nome,
+                            'valor': ajustes_por_medico[m.id].valor if m.id in ajustes_por_medico else '',
+                            'motivo': ajustes_por_medico[m.id].motivo if m.id in ajustes_por_medico else ''}
+                           for m in Medico.objects.order_by('nome')],
+        'total_ajustes': round(sum(float(a.valor) for a in _ajustes_mes(mes)), 2) if mes else 0,
     })
+
+
+def salvar_ajuste_mensal(request):
+    """Salva os ajustes por médico de um mês (desconto negativo / acréscimo positivo).
+    Valor vazio ou 0 apaga o ajuste do médico naquele mês. (Diretoria 2026-07-01.)"""
+    if request.method != 'POST':
+        raise Http404()
+    mes = (request.POST.get('mes') or '').strip()
+    if not mes:
+        raise Http404('Mês não informado.')
+    salvos = 0
+    for m in Medico.objects.all():
+        valor = _num((request.POST.get(f'ajuste_valor_{m.id}') or '').replace('−', '-'))
+        motivo = (request.POST.get(f'ajuste_motivo_{m.id}') or '').strip()
+        if valor:   # None ou 0 -> apaga o ajuste do médico
+            AjusteMensal.objects.update_or_create(
+                ano_mes=mes, medico=m, defaults={'valor': round(valor, 2), 'motivo': motivo})
+            salvos += 1
+        else:
+            AjusteMensal.objects.filter(ano_mes=mes, medico=m).delete()
+    messages.success(request, f'{salvos} ajuste(s) salvo(s) para {mes}.')
+    return redirect(f"{reverse('repasses:relatorio_mensal')}?mes={mes}")
 
 
 def lote_detalhe(request, pk):

@@ -1198,3 +1198,34 @@ class PreceptoriaMensalTests(TestCase):
         wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
         self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, '17.357.063/0001-00')
         self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_CATEGORIA).value, 'Preceptoria')
+
+
+class AjusteMensalTests(TestCase):
+    """Ajuste de fechamento por médico: desconto/acréscimo no relatório + OMIE do mês."""
+
+    def test_salvar_relatorio_e_omie(self):
+        from openpyxl import load_workbook
+        from repasses import views
+        from repasses.models import Medico, AjusteMensal
+        m = Medico.objects.create(nome='Dr. Heric Sakamoto', cnpj='18.145.426/0001-07')
+        r = self.client.post('/relatorio-mensal/ajustes/', {
+            'mes': '2026-06', f'ajuste_valor_{m.id}': '-150,50',
+            f'ajuste_motivo_{m.id}': 'lançado a mais em maio'})
+        self.assertEqual(r.status_code, 302)
+        a = AjusteMensal.objects.get(ano_mes='2026-06', medico=m)
+        self.assertEqual(float(a.valor), -150.50)
+        rel = views._linhas_ajuste_relatorio('2026-06')
+        self.assertEqual((rel[0]['data'], rel[0]['resumo'], rel[0]['valor']),
+                         ('2026-06-30', 'Ajuste', -150.50))
+        oml = views._linhas_ajuste_omie('2026-06')
+        self.assertEqual((oml[0]['nome'], oml[0]['valor']), ('18.145.426/0001-07', -150.50))
+        res = omie.gerar_contas_pagar_de_linhas(oml, settings.OMIE_PAGAR_TEMPLATE)
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, '18.145.426/0001-07')
+
+    def test_valor_vazio_apaga_ajuste(self):
+        from repasses.models import Medico, AjusteMensal
+        m = Medico.objects.create(nome='Dr. X')
+        AjusteMensal.objects.create(ano_mes='2026-06', medico=m, valor=100)
+        self.client.post('/relatorio-mensal/ajustes/', {'mes': '2026-06', f'ajuste_valor_{m.id}': ''})
+        self.assertFalse(AjusteMensal.objects.filter(ano_mes='2026-06', medico=m).exists())

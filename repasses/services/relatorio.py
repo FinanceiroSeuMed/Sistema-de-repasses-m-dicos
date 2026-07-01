@@ -14,13 +14,15 @@ from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-_ORDEM_RESUMO = ['Consultas e exames', 'Cirurgias e procedimentos', 'Preceptoria', 'Anestesia']
+_ORDEM_RESUMO = ['Consultas e exames', 'Cirurgias e procedimentos', 'Preceptoria',
+                 'Anestesia', 'Ajuste']
 # Rótulo exibido nos quadros de soma (capitalização pedida pela diretoria).
 _LABEL_RESUMO = {
     'Consultas e exames': 'Consultas e Exames',
     'Cirurgias e procedimentos': 'Cirurgias e Procedimentos',
     'Preceptoria': 'Preceptoria',
     'Anestesia': 'Anestesia',
+    'Ajuste': 'Ajustes (+/−)',
 }
 _MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho',
           'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -56,7 +58,7 @@ def _quadro_somas(ws, linha0, titulo, por_classe, *, negrito, fill):
     ws.cell(r, 9, '').fill = fill
     r += 1
     for k in _ORDEM_RESUMO:
-        if round(por_classe.get(k, 0), 2) > 0:
+        if round(por_classe.get(k, 0), 2) != 0:
             ws.cell(r, 8, _LABEL_RESUMO.get(k, k))
             cel = ws.cell(r, 9, round(por_classe[k], 2)); cel.number_format = _MOEDA
             r += 1
@@ -101,7 +103,7 @@ def gerar_relatorio_mensal(linhas: list[dict], titulo: str = 'Repasses em Aberto
     ws.cell(r, 2, '').fill = geral_fill
     r += 1
     for k in _ORDEM_RESUMO:
-        if round(geral.get(k, 0), 2) > 0:
+        if round(geral.get(k, 0), 2) != 0:
             ws.cell(r, 1, _LABEL_RESUMO.get(k, k))
             cel = ws.cell(r, 2, round(geral[k], 2)); cel.number_format = _MOEDA
             r += 1

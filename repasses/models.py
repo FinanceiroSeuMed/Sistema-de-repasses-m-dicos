@@ -71,6 +71,29 @@ class Medico(models.Model):
         return self.nome
 
 
+class AjusteMensal(models.Model):
+    """Ajuste de fechamento por médico num mês: desconta (valor negativo) ou acrescenta
+    (positivo) valores lançados errado em meses anteriores. Entra no relatório mensal e
+    no contas a pagar OMIE do mês. Um ajuste por médico/mês. (Diretoria 2026-07-01.)"""
+
+    ano_mes = models.CharField('Mês (AAAA-MM)', max_length=7, db_index=True)
+    medico = models.ForeignKey(Medico, on_delete=models.CASCADE, verbose_name='Médico')
+    valor = models.DecimalField('Valor (+ acréscimo / − desconto)',
+                                max_digits=12, decimal_places=2)
+    motivo = models.CharField('Motivo', max_length=255, blank=True)
+    criado_em = models.DateTimeField('Criado em', auto_now_add=True)
+    atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Ajuste mensal'
+        verbose_name_plural = 'Ajustes mensais'
+        unique_together = [('ano_mes', 'medico')]
+        ordering = ['ano_mes', 'medico__nome']
+
+    def __str__(self):
+        return f'{self.medico.nome} {self.ano_mes}: {self.valor}'
+
+
 class CorrecaoMemorizada(models.Model):
     """Ajuste manual que o sistema memoriza para reaplicar nos próximos meses.
 
