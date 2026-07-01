@@ -1093,6 +1093,43 @@ class LoteHistoricoTests(TestCase):
         self.assertContains(r, 'Arquivos que serão gerados')
         self.assertContains(r, 'OMIE_Contas_a_Pagar')
 
+    def test_correcao_memorizada_sobrevive_a_remocao_de_duplicados(self):
+        # Regressão: a correção marcada (memorizar) tem de ser GRAVADA mesmo quando a
+        # linha é duplicada e a diretoria clica "remover duplicados" (memorizar roda
+        # ANTES do dedup). Antes do fix, a correção era perdida.
+        from repasses import views
+        from repasses.models import Lote, CorrecaoMemorizada
+        lote = self._cria_lote()
+        # lote ANTERIOR (outro token) com as MESMAS impressões digitais -> tudo duplicado
+        livro = regras.carregar_regras(PLANILHA)
+        rel = medplus.ler_relatorio(F22)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel); regras.processar(rel, livro)
+        Lote.objects.create(token='lote-anterior', arquivo_nome='junho.xls',
+                            fingerprints=views._fingerprints_pagaveis(rel))
+        self.client.post(f'/lotes/{lote.id}/reabrir/')      # restaura o upload no disco
+        resultado, _, _ = views._preparar_revisao(self.TOKEN)
+        post = {'token': self.TOKEN, 'remover_duplicados': '1'}
+        for campo, _d in views._campos_pendentes(resultado, {}):   # resolve obrigatórios
+            if campo.startswith('anest_nome_') or campo.startswith('cat_fellow_'):
+                post[campo] = '__sem__'
+            elif campo.startswith('cat_modo_'):
+                post[campo] = 'avista'
+            elif campo.startswith('equipe_destino_'):
+                post[campo] = '__sem_preceptor__'
+            elif campo.startswith('oci_integracao_'):
+                post[campo] = 'nao'
+            elif campo.startswith('classe_'):
+                post[campo] = medplus.CLASSE_EXAME
+        alvo = next(p for b in resultado.blocos for p in b.procedimentos
+                    if p.status_calculo == 'calculado' and (p.honorario or 0) > 0)
+        post[f'hon_{alvo.idx}'] = '1234,56'
+        post[f'memorizar_{alvo.idx}'] = '1'
+        antes = CorrecaoMemorizada.objects.count()
+        r = self.client.post('/importar/exportar/', post)
+        self.assertEqual(r.status_code, 200)
+        self.assertGreater(CorrecaoMemorizada.objects.count(), antes)   # correção gravada
+        self.assertTrue(CorrecaoMemorizada.objects.filter(valor=1234.56).exists())
+
 
 class PreceptoriaMensalTests(TestCase):
     """Preceptoria MENSAL (cadastro obs '/mês'): 1 linha no último dia do mês + OMIE."""

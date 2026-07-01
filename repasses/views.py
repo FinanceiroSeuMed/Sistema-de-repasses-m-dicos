@@ -1012,6 +1012,14 @@ def exportar(request):
                        'inclusive os "sem anestesista"/"sem fellow", para não passar nada batido.']
         return render(request, 'repasses/revisao.html', ctx)
 
+    # Memoriza correções e classes ANTES de qualquer remoção de duplicados: a correção
+    # de honorário que a diretoria impôs é uma regra POR procedimento/médico e deve ser
+    # gravada mesmo que ESTA linha seja duplicada e removida, ou que o lote inteiro vire
+    # "nada novo". memorizar é idempotente (update_or_create). Corrige a regressão em que
+    # as correções sumiam ao usar "remover duplicados". (Diretoria 2026-07-01.)
+    info = _memorizar_correcoes(resultado, request.POST)
+    info += _memorizar_classes(resultado, request.POST)
+
     # Lançamentos DUPLICADOS: atendimentos idênticos (mesmo dia/médico/paciente/proc/
     # convênio/VALOR) já exportados em outro lote. Em vez de travar, oferece REMOVER só
     # os duplicados (exporta o que é novo) OU exportar tudo — assim importar o mês inteiro
@@ -1023,7 +1031,8 @@ def exportar(request):
         if not (any(repasse.pagaveis(b) for b in resultado.blocos) or resultado.anestesistas):
             ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
             ctx['info'] = [f'Todos os {n_removidos} lançamento(s) já tinham sido exportados antes '
-                           '— nada novo para exportar neste arquivo.']
+                           '— nada novo para exportar neste arquivo (as correções marcadas '
+                           'foram memorizadas mesmo assim).']
             return render(request, 'repasses/revisao.html', ctx)
     elif request.POST.get('forcar_duplicado') != '1':
         dups = _atendimentos_duplicados(token, resultado)
@@ -1037,8 +1046,6 @@ def exportar(request):
                            'Remova-os desta exportação ou confirme exportar tudo.']
             return render(request, 'repasses/revisao.html', ctx)
 
-    info = _memorizar_correcoes(resultado, request.POST)
-    info += _memorizar_classes(resultado, request.POST)
     if n_removidos:
         info.insert(0, f'{n_removidos} lançamento(s) duplicado(s) removido(s) desta exportação '
                        '(já tinham saído em outro lote).')
