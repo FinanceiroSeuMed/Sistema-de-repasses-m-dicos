@@ -40,3 +40,5 @@ Thumbs.db
 *.spec
 /dados/
 test-output.txt
+/test_*.py
+/test-*.txt
