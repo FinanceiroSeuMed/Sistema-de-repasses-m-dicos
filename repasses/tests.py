@@ -479,30 +479,49 @@ class RelatorioMensalTests(SimpleTestCase):
 
 
 @unittest.skipUnless(_arquivos_presentes(PLANILHA, FEXPORT2), 'amostra com OCI de residente ausente')
-class OciResidentesTests(SimpleTestCase):
-    """OCI feito por residente vai para o repasse do Dr. Alessander."""
+class OciResidentesTests(TestCase):
+    """OCI de residente: INTERATIVO — integra no Dr. Alessander (Sim) ou não paga (Não)."""
 
-    def test_oci_residente_vai_para_alessander(self):
+    def _rel_marcado(self):
         from repasses import views
         livro = regras.carregar_regras(PLANILHA)
         rel = medplus.ler_relatorio(FEXPORT2)
-        views._filtrar_blocos(rel)
-        views._separar_por_dia(rel)
+        views._filtrar_blocos(rel); views._separar_por_dia(rel)
         regras.processar(rel, livro)
-        raw_res = sum(1 for b in rel.blocos if regras.eh_residente(livro, b.profissional)
-                      for p in b.procedimentos if regras.mapear_convenio(p.convenio) == 'oci')
-        self.assertGreater(raw_res, 0, 'o teste precisa de OCI em agenda de residente')
+        raw = sum(1 for b in rel.blocos if regras.eh_residente(livro, b.profissional)
+                  for p in b.procedimentos if regras.mapear_convenio(p.convenio) == 'oci')
+        self.assertGreater(raw, 0, 'o teste precisa de OCI em agenda de residente')
+        views._oci_residentes(rel, livro)      # MARCA (não move mais)
+        rel.blocos = [b for b in rel.blocos if not regras.eh_residente(livro, b.profissional)
+                      or getattr(b, 'oci_residente', False)]
+        oci_blocos = [b for b in rel.blocos if getattr(b, 'oci_residente', False)]
+        self.assertTrue(oci_blocos, 'agenda de residente com OCI deve ficar marcada p/ decisão')
+        return rel, oci_blocos, raw
 
-        views._oci_residentes(rel, livro)
-        rel.blocos = [b for b in rel.blocos if not regras.eh_residente(livro, b.profissional)]
-
+    def test_integrar_sim_vai_para_alessander(self):
+        from repasses import views
+        rel, oci_blocos, raw = self._rel_marcado()
+        for b in oci_blocos:
+            b.oci_integra = 'sim'
+        views._aplicar_oci_residentes(rel)
+        self.assertFalse([b for b in rel.blocos if getattr(b, 'oci_residente', False)])
         movidas = [(b, p) for b in rel.blocos for p in b.procedimentos
-                   if 'residente' in (p.motivo_calculo or '').lower()]
-        self.assertEqual(len(movidas), raw_res, 'todo OCI de residente deve ser transferido (nada perdido)')
-        # todas no bloco do Alessander e com honorário calculado (> 0)
+                   if 'oci de residente' in (p.motivo_calculo or '').lower()]
+        self.assertEqual(len(movidas), raw, 'todo OCI integrado deve ir ao Alessander')
         for b, p in movidas:
             self.assertIn('alessander', regras.normalizar(b.profissional))
             self.assertGreater(p.honorario or 0, 0)
+
+    def test_nao_integrar_descarta(self):
+        from repasses import views
+        rel, oci_blocos, raw = self._rel_marcado()
+        for b in oci_blocos:
+            b.oci_integra = 'nao'
+        views._aplicar_oci_residentes(rel)
+        # descartado: nenhum bloco de residente e nenhum OCI no Alessander
+        self.assertFalse([b for b in rel.blocos if getattr(b, 'oci_residente', False)])
+        self.assertFalse([p for b in rel.blocos for p in b.procedimentos
+                          if 'oci de residente' in (p.motivo_calculo or '').lower()])
 
 
 class ParserUnitTests(SimpleTestCase):
@@ -721,24 +740,39 @@ class VitrectomiaTests(TestCase):
 
 
 class EquipeDestinoTests(TestCase):
-    """Agenda 'Equipe Dr. Keiti' roteada para o médico escolhido (Keiti/Thalia)."""
+    """Agenda 'Equipe Dr. Keiti' roteada para o PRECEPTOR escolhido (lista do cadastro)."""
 
-    def test_resolver_equipe_roteia(self):
+    def test_lista_vem_dos_preceptores(self):
+        from repasses import views
+        from repasses.models import Medico
+        Medico.objects.create(nome='Dra. Thalia', eh_preceptor=True)
+        Medico.objects.create(nome='Dr. Fulano', eh_preceptor=False)   # não é preceptor
+        self.assertEqual(views._equipe_destinos(), ['Dra. Thalia'])
+
+    def test_resolver_equipe_roteia_preceptor(self):
         from types import SimpleNamespace
         from repasses import views
         from repasses.models import Medico
-        Medico.objects.create(nome='Dr. Keiti Fernando Shirasu', razao_social='CLINICA SHIRASU')
+        Medico.objects.create(nome='Dra. Thalia', razao_social='THALIA LTDA',
+                              cnpj='59.883.866/0001-30', eh_preceptor=True)
         b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.equipe_keiti = True
         rel = SimpleNamespace(blocos=[b])
-        views._resolver_equipe(rel, {'equipe_destino_0': 'Dr. Keiti Fernando Shirasu'})
-        self.assertEqual(b.profissional, 'Dr. Keiti Fernando Shirasu')
-        self.assertEqual(b.razao_social, 'CLINICA SHIRASU')
+        views._resolver_equipe(rel, {'equipe_destino_0': 'Dra. Thalia'})
+        self.assertEqual(b.profissional, 'Dra. Thalia')
+        self.assertEqual(b.razao_social, 'THALIA LTDA')
+        self.assertEqual(b.cnpj, '59.883.866/0001-30')
+
+    def test_sem_preceptor_marca_para_descartar(self):
+        from types import SimpleNamespace
+        from repasses import views
+        b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.equipe_keiti = True
+        rel = SimpleNamespace(blocos=[b])
+        views._resolver_equipe(rel, {'equipe_destino_0': views._SEM_PRECEPTOR})
+        self.assertTrue(b.equipe_sem_preceptor)   # não gera repasse (removido ao exportar)
 
     def test_sem_escolha_permanece_equipe(self):
         from types import SimpleNamespace
         from repasses import views
-        from repasses.models import Medico
-        Medico.objects.create(nome='Dr. Keiti Fernando Shirasu')
         b = medplus.BlocoMedico(profissional=views._NOME_EQUIPE_KEITI); b.equipe_keiti = True
         rel = SimpleNamespace(blocos=[b])
         views._resolver_equipe(rel, {'equipe_destino_0': '__verificar__'})

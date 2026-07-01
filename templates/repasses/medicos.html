@@ -26,6 +26,8 @@
                 <th>Médico</th>
                 <th>Papéis</th>
                 <th>Razão Social</th>
+                <th>CNPJ</th>
+                <th>Chave PIX</th>
                 <th>Regra / observação</th>
             </tr>
         </thead>
@@ -39,6 +41,8 @@
                     {% if m.eh_anestesista %}<span class="badge badge-cirurgia">Anestesista</span>{% endif %}
                 </td>
                 <td>{{ m.razao_social|default:"—" }}</td>
+                <td>{{ m.cnpj|default:"—" }}</td>
+                <td>{{ m.chave_pix|default:"—" }}</td>
                 <td>{{ m.regra_obs|default:"—" }}</td>
             </tr>
             {% endfor %}

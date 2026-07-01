@@ -115,6 +115,10 @@ class Command(BaseCommand):
                 medico.regra_obs = _OBS_RESIDENTE
             if medico.eh_anestesista and any(t in chave for t in ('suellen', 'isabela', 'marilia')):
                 medico.regra_obs = _OBS_ANEST_CASSIANA
+            # Dr. Keiti é preceptor da "Equipe Dr. Keiti" — aparece na lista de responsáveis
+            # da agenda dele. (Diretoria 2026-07-01.)
+            if 'keiti' in chave:
+                medico.eh_preceptor = True
             medico.save()
             existentes[chave] = medico
 

@@ -72,7 +72,7 @@
         <input type="hidden" name="novo_count" value="{{ medicos_novos|length }}">
         <table class="tabela">
             <thead>
-                <tr><th>Nome</th><th>Categoria *</th><th>Razão Social</th><th>Regra / observação</th><th>Papéis extras</th></tr>
+                <tr><th>Nome</th><th>Categoria *</th><th>Razão Social</th><th>CNPJ</th><th>Chave PIX</th><th>Regra / observação</th><th>Papéis extras</th></tr>
             </thead>
             <tbody>
                 {% for nome in medicos_novos %}
@@ -84,7 +84,9 @@
                             {% for val, rotulo in categorias_medico %}<option value="{{ val }}">{{ rotulo }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td><input type="text" class="inp-hon" name="novo_razao_{{ forloop.counter0 }}" placeholder="(Fornecedor na OMIE)" style="width:100%"></td>
+                    <td><input type="text" class="inp-hon" name="novo_razao_{{ forloop.counter0 }}" placeholder="(razão social)" style="width:100%"></td>
+                    <td><input type="text" class="inp-hon" name="novo_cnpj_{{ forloop.counter0 }}" placeholder="(Fornecedor na OMIE)" style="width:100%"></td>
+                    <td><input type="text" class="inp-hon" name="novo_pix_{{ forloop.counter0 }}" placeholder="(chave PIX)" style="width:100%"></td>
                     <td><input type="text" class="inp-hon" name="novo_regra_{{ forloop.counter0 }}" placeholder="ex.: R$ 800/semana; não recebe em catarata" style="width:100%"></td>
                     <td class="papeis-novo">
                         <label><input type="checkbox" name="novo_papeis_{{ forloop.counter0 }}" value="fellow"> fellow</label>
@@ -208,16 +210,35 @@
 
         {% if bloco.equipe_keiti %}
         <div class="anestesista-box">
-            <strong>Agenda "Equipe Dr. Keiti" — os lançamentos vão para:</strong>
+            <strong>Agenda "Equipe Dr. Keiti" — preceptor responsável pelo repasse:</strong>
             <span class="campo-inline">
                 <select name="equipe_destino_{{ forloop.counter0 }}" data-campo="equipe_destino_{{ forloop.counter0 }}"
-                        data-pendencia="Destino da agenda Equipe Dr. Keiti"
-                        class="inp-classe campo-obrig{% if bloco.sel_equipe_destino not in equipe_destinos %} precisa-verificar{% endif %}">
-                    <option value="__verificar__"{% if bloco.sel_equipe_destino not in equipe_destinos %} selected{% endif %}>-</option>
+                        data-pendencia="Preceptor da agenda Equipe Dr. Keiti"
+                        class="inp-classe campo-obrig{% if bloco.sel_equipe_destino not in equipe_destinos and bloco.sel_equipe_destino != sem_preceptor %} precisa-verificar{% endif %}">
+                    <option value="__verificar__"{% if bloco.sel_equipe_destino not in equipe_destinos and bloco.sel_equipe_destino != sem_preceptor %} selected{% endif %}>-</option>
+                    <option value="{{ sem_preceptor }}"{% if bloco.sel_equipe_destino == sem_preceptor %} selected{% endif %}>Sem preceptor (não gera repasse)</option>
                     {% for d in equipe_destinos %}<option value="{{ d }}"{% if d == bloco.sel_equipe_destino %} selected{% endif %}>{{ d }}</option>{% endfor %}
                 </select>
             </span>
-            <small>Escolha para quem vai esta agenda (até existir uma agenda "Equipe Dra. Thalia").</small>
+            <small>Escolha o <strong>preceptor</strong> que recebe esta agenda (lista de preceptores cadastrados),
+                ou "Sem preceptor" se o lançamento é só para os residentes verem.</small>
+        </div>
+        {% endif %}
+
+        {% if bloco.oci_residente %}
+        <div class="anestesista-box">
+            <strong>OCI na agenda de residente — integrar no repasse do Dr. Alessander?</strong>
+            <span class="campo-inline">
+                <select name="oci_integracao_{{ forloop.counter0 }}" data-campo="oci_integracao_{{ forloop.counter0 }}"
+                        data-pendencia="OCI de residente — {{ bloco.profissional }}"
+                        class="inp-classe campo-obrig{% if bloco.sel_oci_integracao != 'sim' and bloco.sel_oci_integracao != 'nao' %} precisa-verificar{% endif %}">
+                    <option value="__verificar__"{% if bloco.sel_oci_integracao != 'sim' and bloco.sel_oci_integracao != 'nao' %} selected{% endif %}>-</option>
+                    <option value="sim"{% if bloco.sel_oci_integracao == 'sim' %} selected{% endif %}>Sim — integrar no Dr. Alessander</option>
+                    <option value="nao"{% if bloco.sel_oci_integracao == 'nao' %} selected{% endif %}>Não — não paga</option>
+                </select>
+            </span>
+            <small>OCI feito por residente: <strong>Sim</strong> soma ao repasse do Dr. Alessander;
+                <strong>Não</strong> não gera repasse (residente não recebe em Oftalmo).</small>
         </div>
         {% endif %}
 
@@ -233,7 +254,13 @@
                     {% for a in anestesistas %}<option value="{{ a.nome }}"{% if a.nome == bloco.sel_anest_nome %} selected{% endif %}>{{ a.nome }}</option>{% endfor %}
                 </select>
             </span>
-            <small>Confirme (anestesista ou "sem anestesista"). A <strong>Dra. Regina</strong> vira lembrete em dinheiro.</small>
+            <span class="campo-inline anest-cnpj-box"{% if not bloco.sel_anest_cnpj and 'egina' not in bloco.sel_anest_nome %} style="display:none"{% endif %}>
+                CNPJ (Residente Dra. Regina):
+                <input type="text" name="anest_cnpj_{{ forloop.counter0 }}" class="inp-anest"
+                       value="{{ bloco.sel_anest_cnpj }}" placeholder="00.000.000/0000-00">
+            </span>
+            <small>Confirme (anestesista ou "sem anestesista"). A <strong>Dra. Regina</strong> vira lembrete em dinheiro;
+                a <strong>Residente Dra. Regina</strong> pede o CNPJ ao lado.</small>
         </div>
         {% endif %}
 
@@ -519,6 +546,20 @@
                 i.value = ''; i.dataset.tocado = '';
             });
         });
+    });
+    // Mostra o campo de CNPJ só quando o anestesista escolhido for a "Residente Dra. Regina".
+    document.querySelectorAll('select[name^="anest_nome_"]').forEach(function (sel) {
+        function toggleCnpj() {
+            var box = sel.closest('.anestesista-box');
+            var cnpj = box ? box.querySelector('.anest-cnpj-box') : null;
+            if (!cnpj) return;
+            var t = (sel.value || '').toLowerCase();
+            var ehResidenteRegina = t.indexOf('regina') >= 0 &&
+                (t.indexOf('residente') >= 0 || t.indexOf('rediente') >= 0);
+            cnpj.style.display = ehResidenteRegina ? '' : 'none';
+        }
+        sel.addEventListener('change', toggleCnpj);
+        toggleCnpj();
     });
 })();
 </script>

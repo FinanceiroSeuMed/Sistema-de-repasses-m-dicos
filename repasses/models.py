@@ -37,6 +37,8 @@ class Medico(models.Model):
                                     help_text='Razão social do médico (PJ).')
     cnpj = models.CharField('CNPJ', max_length=20, blank=True,
                             help_text='CNPJ do médico (PJ) — é a CHAVE do Fornecedor no contas a pagar da OMIE.')
+    chave_pix = models.CharField('Chave PIX', max_length=80, blank=True,
+                                 help_text='Chave PIX do médico (para pagamento) — opcional.')
     regra_obs = models.CharField('Regra / observação da planilha', max_length=255, blank=True,
                                  help_text='Ex.: "R$ 800,00 /semana", "Não recebem em catarata".')
 

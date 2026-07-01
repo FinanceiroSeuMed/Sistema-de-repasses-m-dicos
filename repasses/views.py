@@ -104,8 +104,8 @@ def _caminho_upload(token: str):
 
 # Campos da revisão que ficam salvos (o resto — token, csrf, memorizar — não).
 _PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
-                      'cat_chefe_', 'cat_fellowval_', 'equipe_destino_',
-                      'anest_nome_', 'anest_horas_', 'preceptoria_', 'memo_medicos_')
+                      'cat_chefe_', 'cat_fellowval_', 'equipe_destino_', 'oci_integracao_',
+                      'anest_nome_', 'anest_horas_', 'anest_cnpj_', 'preceptoria_', 'memo_medicos_')
 
 
 def _salvar_rascunho(token, post):
@@ -135,8 +135,10 @@ def _anotar_selecoes(resultado, dados):
     for i, bloco in enumerate(resultado.blocos):
         bloco.sel_anest_nome = dados.get(f'anest_nome_{i}', '')
         bloco.sel_anest_horas = dados.get(f'anest_horas_{i}', '')
+        bloco.sel_anest_cnpj = dados.get(f'anest_cnpj_{i}', '')
         bloco.sel_preceptoria = dados.get(f'preceptoria_{i}', '')
         bloco.sel_equipe_destino = dados.get(f'equipe_destino_{i}', '')
+        bloco.sel_oci_integracao = dados.get(f'oci_integracao_{i}', '')
         for p in bloco.procedimentos:
             p.sel_cat_modo = dados.get(f'cat_modo_{p.idx}', '')
             p.sel_cat_fellow = dados.get(f'cat_fellow_{p.idx}', '')
@@ -159,6 +161,9 @@ def _preparar_revisao(token):
     # diretoria). Roda ANTES dos demais resolvers (antes de criar blocos sintéticos),
     # para o índice do seletor casar com a posição do bloco. (Diretoria 2026-06-27.)
     _resolver_equipe(resultado, dados)
+    # OCI de residente: registra a escolha (integrar no Dr. Alessander ou não). O move/
+    # descarte efetivo é na exportação, para não mexer no índice dos campos.
+    _resolver_oci_residentes(resultado, dados)
     _resolver_anestesistas(resultado, dados)
     # Resolve a catarata particular JÁ no preview: quando o usuário declara à
     # vista/parcelado, o valor entra no total e o repasse do fellow (40%) aparece.
@@ -206,15 +211,15 @@ def _eh_equipe_keiti(n):
     return 'equipe' in n and 'keiti' in n
 
 
+_SEM_PRECEPTOR = '__sem_preceptor__'
+
+
 def _equipe_destinos():
-    """Médicos que podem receber a agenda 'Equipe Dr. Keiti' (Dr. Keiti, Dra. Thalia)."""
-    nomes = []
-    for frag in ('keiti', 'thalia'):
-        m = (Medico.objects.filter(nome__icontains=frag)
-             .exclude(nome__icontains='equipe').order_by('nome').first())
-        if m and m.nome not in nomes:
-            nomes.append(m.nome)
-    return nomes
+    """Preceptores que podem receber a agenda 'Equipe Dr. Keiti' — vêm do CADASTRO
+    (eh_preceptor=True), então cadastrar/remover um preceptor reflete na lista na hora.
+    (Diretoria 2026-07-01.)"""
+    return list(Medico.objects.filter(eh_preceptor=True)
+                .order_by('nome').values_list('nome', flat=True))
 
 
 def _filtrar_blocos(resultado):
@@ -305,9 +310,11 @@ def _ler_e_processar(caminho, nome=''):
         # Classe memorizada por procedimento (vale p/ todos os médicos) — reaplica a
         # classificação que a diretoria já definiu antes. (Diretoria 2026-06-26.)
         correcoes.aplicar_classes(resultado)
-        # Residentes não recebem -> não aparecem no preview nem na exportação
+        # Residentes não recebem -> não aparecem no preview nem na exportação, EXCETO os
+        # que têm OCI a decidir (integrar no Dr. Alessander?) — ficam para a revisão.
         resultado.blocos = [b for b in resultado.blocos
-                            if not regras.eh_residente(livro, b.profissional)]
+                            if not regras.eh_residente(livro, b.profissional)
+                            or getattr(b, 'oci_residente', False)]
         _aplicar_keiti(resultado)
         # Equipe Dr. Keiti: os lançamentos são SEMPRE consultas/exames (diretoria
         # 2026-06-27) — nunca cirurgia — no a pagar/receber da OMIE. Força após a
@@ -396,22 +403,20 @@ _OCI_RESPONSAVEL = 'alessander'
 
 
 def _oci_residentes(resultado, livro):
-    """OCI feito por residente: o residente NÃO recebe; o Dr. Alessander recebe.
-
-    Move as linhas de convênio OCI das agendas de residentes para o repasse do
-    Dr. Alessander (agrupando por dia/clínica), recalculando o honorário como se
-    ele as tivesse feito. As demais linhas do residente seguem o fluxo normal
-    (residente é filtrado depois). Rodar ANTES da filtragem de residentes."""
-    from collections import defaultdict
+    """OCI feito por residente: o residente NÃO recebe. A diretoria decide na revisão se
+    INTEGRA o OCI no repasse do Dr. Alessander (Sim) ou não (Não = não paga). Aqui só
+    MARCAMOS: mantém no bloco do residente APENAS as linhas de OCI (recalculadas como se o
+    Dr. Alessander as tivesse feito) e sinaliza oci_residente=True. O move/descarte
+    acontece na exportação (_aplicar_oci_residentes). Rodar ANTES da filtragem de
+    residentes. (Diretoria 2026-07-01 — antes era automático.)"""
     responsavel = next((m for m in livro.medicos
                         if _OCI_RESPONSAVEL in regras.normalizar(m.nome)), None)
     if responsavel is None:
         return
-    extras = defaultdict(list)   # (data, clínica) -> linhas de OCI a transferir
     for bloco in resultado.blocos:
         if not regras.eh_residente(livro, bloco.profissional):
             continue
-        mantidas = []
+        ocis = []
         for p in bloco.procedimentos:
             if regras.mapear_convenio(p.convenio) == 'oci':
                 r = regras.calcular(livro, p.procedimento, p.convenio, p.valor,
@@ -419,23 +424,42 @@ def _oci_residentes(resultado, livro):
                                     quantidade=p.quantidade)
                 p.honorario = r.honorario
                 p.status_calculo = r.status
-                p.motivo_calculo = (f'OCI feito por residente ({bloco.profissional}) — '
-                                    f'repasse do {responsavel.nome}.')
-                extras[(bloco.data, bloco.clinica or '')].append(p)
-            else:
-                mantidas.append(p)
-        bloco.procedimentos = mantidas
+                p.motivo_calculo = (f'OCI de residente ({bloco.profissional}) — a integrar '
+                                    f'no {responsavel.nome} (decidir na revisão).')
+                ocis.append(p)
+        if ocis:   # só mantém o bloco do residente se tiver OCI a decidir
+            bloco.procedimentos = ocis
+            bloco.oci_residente = True
+            bloco.oci_responsavel = responsavel.nome
 
-    alvo = regras.normalizar(responsavel.nome)
-    for (data, clinica), linhas in extras.items():
+
+def _aplicar_oci_residentes(resultado):
+    """Na EXPORTAÇÃO: integra os OCI de residente no Dr. Alessander (oci_integra='sim')
+    ou descarta (qualquer outro — não paga, residente não recebe). Depois remove os blocos
+    de residente (só existiam para a decisão). Feito só ao exportar para não mexer no
+    índice dos campos da revisão."""
+    from collections import defaultdict
+    mover, responsavel_nome = defaultdict(list), ''
+    for bloco in resultado.blocos:
+        if getattr(bloco, 'oci_residente', False) and getattr(bloco, 'oci_integra', '') == 'sim':
+            responsavel_nome = getattr(bloco, 'oci_responsavel', '') or responsavel_nome
+            mover[(bloco.data, bloco.clinica or '')].extend(bloco.procedimentos)
+    resultado.blocos = [b for b in resultado.blocos if not getattr(b, 'oci_residente', False)]
+    if not mover:
+        return
+    m = Medico.objects.filter(nome=responsavel_nome).first()
+    alvo = regras.normalizar(responsavel_nome)
+    for (data, clinica), linhas in mover.items():
         bloco = next((b for b in resultado.blocos
                       if regras.normalizar(b.profissional) == alvo
                       and b.data == data and (b.clinica or '') == clinica), None)
         if bloco is None:
-            bloco = medplus.BlocoMedico(profissional=responsavel.nome,
-                                        razao_social=responsavel.razao_social or '')
+            bloco = medplus.BlocoMedico(profissional=responsavel_nome,
+                                        razao_social=(m.razao_social if m else '') or '')
             bloco.data = data
             bloco.clinica = clinica
+            bloco.cnpj = m.cnpj if m else ''
+            bloco.medico_cadastro = responsavel_nome
             resultado.blocos.append(bloco)
         bloco.procedimentos.extend(linhas)
 
@@ -635,21 +659,36 @@ def _resolver_cirurgias(resultado, post):
 
 
 def _resolver_equipe(resultado, post):
-    """A agenda 'Equipe Dr. Keiti' vai para o Dr. Keiti OU a Dra. Thalia, conforme a
-    diretoria escolher na revisão. Renomeia o bloco para o médico escolhido (nome +
-    razão social do cadastro). Sem escolha, fica "Equipe Dr. Keiti" (pendente)."""
+    """A agenda 'Equipe Dr. Keiti' vai para o PRECEPTOR responsável (lista do cadastro,
+    eh_preceptor) escolhido na revisão. 'Sem preceptor' = lançamento só para os residentes
+    verem — não gera repasse (removido na hora de exportar). Sem escolha, fica pendente.
+    Renomeia o bloco para o preceptor (nome + razão + CNPJ do cadastro). (Diretoria 2026-07-01.)"""
     validos = set(_equipe_destinos())
     for i, bloco in enumerate(resultado.blocos):
         if not getattr(bloco, 'equipe_keiti', False):
             continue
         destino = (post.get(f'equipe_destino_{i}') or '').strip()
+        if destino == _SEM_PRECEPTOR:
+            bloco.equipe_sem_preceptor = True
+            bloco.equipe_resolvido = destino
+            continue
+        bloco.equipe_sem_preceptor = False
         if destino not in validos:
             continue   # não escolhido -> permanece pendente
         m = Medico.objects.filter(nome=destino).first()
         bloco.profissional = m.nome if m else destino
         bloco.razao_social = (m.razao_social if m else '') or bloco.razao_social
+        bloco.cnpj = (m.cnpj if m else '') or getattr(bloco, 'cnpj', '')
         bloco.medico_cadastro = m.nome if m else destino
         bloco.equipe_resolvido = destino
+
+
+def _resolver_oci_residentes(resultado, post):
+    """Registra a escolha (integrar o OCI do residente no Dr. Alessander ou não). O move/
+    descarte efetivo é em _aplicar_oci_residentes, na exportação."""
+    for i, bloco in enumerate(resultado.blocos):
+        if getattr(bloco, 'oci_residente', False):
+            bloco.oci_integra = (post.get(f'oci_integracao_{i}') or '').strip()
 
 
 def _resolver_preceptoria(resultado, post):
@@ -682,6 +721,13 @@ def _eh_regina_dinheiro(nome):
     return 'regina' in n and not any(w in n for w in ('equipe', 'residente', 'rediente', 'grupo', 'time'))
 
 
+def _eh_residente_regina(nome):
+    """'Residente(s) Dra. Regina' — recebe repasse na OMIE, mas não tem cadastro/CNPJ
+    próprio; por isso a diretoria digita o CNPJ na hora. (Diretoria 2026-07-01.)"""
+    n = regras.normalizar(nome)
+    return 'regina' in n and any(w in n for w in ('residente', 'rediente'))
+
+
 def _valor_regina(n_cirurgias):
     """Valor em dinheiro da Dra. Regina por nº de cirurgias no dia: R$ 1.500 a partir
     de 24, senão R$ 1.000. (Diretoria 2026-06-25.)"""
@@ -712,11 +758,15 @@ def _resolver_anestesistas(resultado, post):
         horas = _num(post.get(f'anest_horas_{i}')) or 0
         valor = regras.valor_anestesista(nome, horas)
         m = Medico.objects.filter(nome=nome).first()
+        # 'Residente Dra. Regina' não tem CNPJ no cadastro: a diretoria digita na hora
+        # (campo anest_cnpj_{i}) e ele vira o Fornecedor no a pagar. (Diretoria 2026-07-01.)
+        cnpj_manual = (post.get(f'anest_cnpj_{i}') or '').strip()
+        cnpj = cnpj_manual or (m.cnpj if m else '')
         resultado.anestesistas.append({
             'indice': i,
             'anestesista': nome,
             'razao_social': m.razao_social if m else '',
-            'cnpj': m.cnpj if m else '',
+            'cnpj': cnpj,
             'cirurgiao': bloco.profissional,
             'clinica': getattr(bloco, 'clinica', '') or '',
             'subunidade': getattr(bloco, 'subunidade', ''),
@@ -742,10 +792,14 @@ def _campos_pendentes(resultado, post):
     for i, bloco in enumerate(resultado.blocos):
         if getattr(bloco, 'equipe_keiti', False):
             if destinos_equipe is None:
-                destinos_equipe = set(_equipe_destinos())
+                destinos_equipe = set(_equipe_destinos()) | {_SEM_PRECEPTOR}
             if (post.get(f'equipe_destino_{i}') or '').strip() not in destinos_equipe:
-                pend.append((f'equipe_destino_{i}', 'Agenda "Equipe Dr. Keiti": escolha o destino '
-                             '(Dr. Keiti ou Dra. Thalia).'))
+                pend.append((f'equipe_destino_{i}', 'Agenda "Equipe Dr. Keiti": escolha o preceptor '
+                             'responsável (ou "Sem preceptor").'))
+        if getattr(bloco, 'oci_residente', False):
+            if (post.get(f'oci_integracao_{i}') or '').strip() not in ('sim', 'nao'):
+                pend.append((f'oci_integracao_{i}', f'OCI na agenda de {bloco.profissional}: integrar '
+                             'no Dr. Alessander? (Sim/Não)'))
         if bloco.tem_cirurgia and not getattr(bloco, 'participacao', False):
             if (post.get(f'anest_nome_{i}') or '').strip() in ('', _VERIFICAR):
                 pend.append((f'anest_nome_{i}', f'Anestesista de {bloco.profissional} — confirme (ou "sem anestesista").'))
@@ -868,6 +922,8 @@ def cadastrar_medicos(request):
         Medico.objects.create(
             nome=nome, categoria=categoria,
             razao_social=(request.POST.get(f'novo_razao_{i}') or '').strip(),
+            cnpj=(request.POST.get(f'novo_cnpj_{i}') or '').strip(),
+            chave_pix=(request.POST.get(f'novo_pix_{i}') or '').strip(),
             regra_obs=(request.POST.get(f'novo_regra_{i}') or '').strip(),
             eh_fellow=(categoria == Medico.CATEGORIA_FELLOW) or ('fellow' in papeis),
             eh_preceptor=(categoria == Medico.CATEGORIA_PRECEPTOR) or ('preceptor' in papeis),
@@ -983,8 +1039,9 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'anestesistas': list(Medico.objects.filter(eh_anestesista=True).order_by('nome')),
         'lembretes_regina': getattr(resultado, 'lembretes_regina', []),
         'classe_indefinida': medplus.CLASSE_INDEFINIDA,
-        # Destinos possíveis da agenda "Equipe Dr. Keiti" (Dr. Keiti / Dra. Thalia).
+        # Preceptores que podem receber a agenda "Equipe Dr. Keiti" + sentinela "Sem preceptor".
         'equipe_destinos': _equipe_destinos(),
+        'sem_preceptor': _SEM_PRECEPTOR,
     }
 
 
@@ -1049,6 +1106,13 @@ def exportar(request):
     if n_removidos:
         info.insert(0, f'{n_removidos} lançamento(s) duplicado(s) removido(s) desta exportação '
                        '(já tinham saído em outro lote).')
+
+    # Decisões que só valem na EXPORTAÇÃO (não afetam o índice dos campos da revisão):
+    # OCI de residente integra no Dr. Alessander (ou é descartado) e a Equipe Dr. Keiti
+    # marcada "Sem preceptor" sai (era só informativa para os residentes).
+    _aplicar_oci_residentes(resultado)
+    resultado.blocos = [b for b in resultado.blocos
+                        if not getattr(b, 'equipe_sem_preceptor', False)]
 
     arquivos, pend = _gerar_arquivos_por_dia(resultado)
     pasta_saida, downloads = _salvar_saidas(arquivos)
