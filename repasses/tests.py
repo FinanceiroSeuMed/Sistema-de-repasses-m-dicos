@@ -1203,6 +1203,81 @@ class LoteHistoricoTests(TestCase):
         self.assertTrue(CorrecaoMemorizada.objects.filter(valor=1234.56).exists())
 
 
+class LotePorDiaTests(TestCase):
+    """Exportar um período gera UM LOTE POR DIA (diretoria 2026-07-02): cada dia tem
+    seus próprios arquivos e pode ser excluído/reaberto sem re-exportar os outros."""
+
+    TOKEN = 'abcdefabcdefabcdefabcdefabcdef12.xls'
+    ARQUIVO = os.path.join(_AMOSTRAS, 'medplus_maio_semana1.xls')   # 6 dias (02–08/05)
+
+    def _exportar(self):
+        from repasses import views
+        from repasses.models import Lote
+        if not Lote.objects.filter(token__startswith=self.TOKEN).exists():
+            with open(self.ARQUIVO, 'rb') as f:
+                Lote.objects.create(token=self.TOKEN, arquivo_nome='maio_semana1.xls',
+                                    upload_conteudo=f.read(), edicoes={})
+        lote = Lote.objects.filter(token__startswith=self.TOKEN).first()
+        self.client.post(f'/lotes/{lote.id}/reabrir/')          # restaura o upload no disco
+        resultado, _, _ = views._preparar_revisao(self.TOKEN)
+        post = {'token': self.TOKEN, 'forcar_duplicado': '1'}
+        for campo, _d in views._campos_pendentes(resultado, {}):   # resolve obrigatórios
+            if campo.startswith('anest_nome_') or campo.startswith('cat_fellow_'):
+                post[campo] = '__sem__'
+            elif campo.startswith('cat_modo_'):
+                post[campo] = 'avista'
+            elif campo.startswith('equipe_destino_'):
+                post[campo] = '__sem_preceptor__'
+            elif campo.startswith('oci_integracao_'):
+                post[campo] = 'nao'
+            elif campo.startswith('classe_'):
+                post[campo] = medplus.CLASSE_EXAME
+        r = self.client.post('/importar/exportar/', post)
+        self.assertEqual(r.status_code, 200)
+
+    def test_um_lote_por_dia_e_exclusao_independente(self):
+        from repasses.models import Lote, Repasse
+        self._exportar()
+        lotes = list(Lote.objects.filter(token__startswith=self.TOKEN)
+                     .order_by('periodo_inicio'))
+        self.assertGreater(len(lotes), 1)                        # dividiu por dia
+        self.assertFalse(Lote.objects.filter(token=self.TOKEN).exists())   # legado migrado
+        dias = set()
+        for l in lotes:
+            self.assertEqual(l.periodo_inicio, l.periodo_fim)    # lote de UM dia
+            dias.add(l.periodo_inicio)
+            for r in l.repasses.all():
+                self.assertEqual(r.data, l.periodo_inicio)       # repasses só do dia
+            for ln in l.linhas_pagar:
+                self.assertEqual(ln['data'], l.periodo_inicio.isoformat())
+            self.assertTrue(l.arquivos.exists())                 # arquivos próprios do dia
+            self.assertTrue(l.upload_conteudo)                   # reabre mesmo sozinho
+        self.assertEqual(len(dias), len(lotes))                  # um dia por lote
+        # excluir SÓ um dia: os outros ficam intactos
+        alvo, resto = lotes[0], lotes[1:]
+        r = self.client.post(f'/lotes/{alvo.id}/excluir/', follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(Lote.objects.filter(id=alvo.id).exists())
+        self.assertFalse(Repasse.objects.filter(lote_id=alvo.id).exists())
+        for l in resto:
+            self.assertTrue(Lote.objects.filter(id=l.id).exists())
+        # o dia excluído some do histórico por dia; os demais continuam
+        resp = self.client.get('/lotes/')
+        dias_hist = {d['data'] for d in resp.context['dias']}
+        self.assertNotIn(alvo.periodo_inicio, dias_hist)
+        self.assertIn(resto[0].periodo_inicio, dias_hist)
+        # dia coberto por lote-dia único e sem pago -> excluível direto do histórico
+        d0 = next(d for d in resp.context['dias'] if d['data'] == resto[0].periodo_inicio)
+        self.assertEqual(d0['excluir_lote'], resto[0].id)
+
+    def test_reexportar_atualiza_sem_duplicar(self):
+        from repasses.models import Lote
+        self._exportar()
+        n1 = Lote.objects.filter(token__startswith=self.TOKEN).count()
+        self._exportar()                                          # reabre e exporta de novo
+        self.assertEqual(Lote.objects.filter(token__startswith=self.TOKEN).count(), n1)
+
+
 class PreceptoriaMensalTests(TestCase):
     """Preceptoria MENSAL (cadastro obs '/mês'): 1 linha no último dia do mês + OMIE."""
 
@@ -1437,6 +1512,22 @@ class HistoricoPorDiaTests(TestCase):
         self.assertEqual(r.status_code, 302)
         r = Client().post('/lotes/relatorio-dias/', {'dias': ['lixo', '']})
         self.assertEqual(r.status_code, 302)   # datas inválidas descartadas
+
+    def test_omie_a_pagar_dos_dias_selecionados(self):
+        import io as _io
+        from django.test import Client
+        from openpyxl import load_workbook
+        r = Client().post('/lotes/relatorio-dias/',
+                          {'dias': ['2026-06-12'], 'formato': 'omie'})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('OMIE_Contas_a_Pagar_Dias_12-06', r['Content-Disposition'])
+        wb = load_workbook(_io.BytesIO(b''.join(r.streaming_content)))
+        ws = wb[wb.sheetnames[0]]
+        # 1 linha (só o dia 12): Fornecedor (sem cadastro -> nome), categoria e valor
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_NOME).value, 'Dr. A')
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_CATEGORIA).value,
+                         'Consultas Particulares')
+        self.assertIsNone(ws.cell(omie.LINHA_INICIAL + 1, omie.COL_NOME).value)
 
     def test_relatorio_dia_sem_lancamento_redireciona(self):
         from django.test import Client

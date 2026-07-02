@@ -83,7 +83,14 @@ def _salvar_upload(arquivo) -> str:
     return token
 
 
+def _token_base(token: str) -> str:
+    """Token do UPLOAD a partir do token de um lote: os lotes são por DIA
+    ('<upload>~AAAA-MM-DD'), mas o arquivo importado/rascunho é um só."""
+    return (token or '').split('~', 1)[0]
+
+
 def _caminho_upload(token: str):
+    token = _token_base(token)
     if not token or not _TOKEN_RE.match(token):
         return None
     base = Path(settings.UPLOADS_DIR).resolve()
@@ -92,8 +99,10 @@ def _caminho_upload(token: str):
         return None
     if caminho.is_file():
         return caminho
-    # Pasta uploads/ limpa? Recupera o .xls de origem guardado no banco (lote).
-    lote = Lote.objects.filter(token=token).exclude(upload_conteudo=None).first()
+    # Pasta uploads/ limpa? Recupera o .xls de origem guardado no banco — qualquer
+    # lote-dia deste upload serve (todos guardam o mesmo .xls).
+    lote = (Lote.objects.filter(token__startswith=token)
+            .exclude(upload_conteudo=None).first())
     if lote and lote.upload_conteudo:
         base.mkdir(parents=True, exist_ok=True)
         caminho.write_bytes(bytes(lote.upload_conteudo))
@@ -1072,7 +1081,7 @@ def exportar(request):
         ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados,
                            pendencias=[d for _, d in pend_obrig])
         ctx['campos_pendentes'] = [c for c, _ in pend_obrig]
-        ctx['info'] = ['⚠️ Confirme os campos destacados (em amarelo) antes de exportar — '
+        ctx['info'] = ['Confirme os campos destacados (em amarelo) antes de exportar — '
                        'inclusive os "sem anestesista"/"sem fellow", para não passar nada batido.']
         return render(request, 'repasses/revisao.html', ctx)
 
@@ -1126,20 +1135,80 @@ def exportar(request):
         info.insert(0, f'{n_removidos} lançamento(s) duplicado(s) removido(s) desta exportação '
                        '(já tinham saído em outro lote).')
 
-    arquivos, pend = _gerar_arquivos_por_dia(resultado)
-    pasta_saida, downloads = _salvar_saidas(arquivos)
-    avisos_dup = _registrar_lote(request, token, resultado, dados, pasta_saida, downloads)
-    _guardar_arquivos_no_banco(token, arquivos)        # re-download não depende da pasta saídas/
-    _guardar_upload_no_banco(token)                    # re-export sobrevive à limpeza de uploads/
+    # ---- UM LOTE POR DIA (diretoria 2026-07-02) --------------------------------
+    # O resultado revisado é dividido pelos dias do atendimento: cada dia vira um
+    # lote próprio (token '<upload>~AAAA-MM-DD') com seus arquivos (PDF/Excel por
+    # médico + OMIE do dia). Assim um dia pode ser excluído/reaberto sem mexer nos
+    # outros; a saída de VÁRIOS dias juntos sai pela seleção de dias no histórico.
+    ref = omie._data_referencia(resultado)
+    dias_export = sorted({(b.data or ref) for b in resultado.blocos}
+                         | {(a.get('data') or ref) for a in resultado.anestesistas})
+
+    # Status de pagamento do formato antigo (um lote por período): preserva ao migrar.
+    legado = Lote.objects.filter(token=token).first()
+    status_antigos = {}
+    if legado:
+        status_antigos = {(r.tipo, r.medico, r.data, r.clinica): r.status
+                          for r in legado.repasses.exclude(status=Repasse.STATUS_GERADO)}
+
+    por_dia, pend = [], []
+    for dia in dias_export:
+        res_dia = _resultado_do_dia(resultado, dia, ref)
+        if not (any(repasse.pagaveis(b) for b in res_dia.blocos) or res_dia.anestesistas):
+            continue                     # dia sem nada pagável não vira lote
+        arqs_dia, pend_dia = _gerar_arquivos_por_dia(res_dia)
+        pend += pend_dia
+        por_dia.append((dia, res_dia, arqs_dia))
+
+    todos_arquivos = [a for _, _, arqs in por_dia for a in arqs]
+    pasta_saida, downloads = _salvar_saidas(todos_arquivos)
+
+    lotes_dia, fps_todos = [], []
+    for dia, res_dia, arqs in por_dia:
+        dls = [{'grupo': g, 'arquivo': n} for (g, n, _c) in arqs]
+        lote_dia, fps = _registrar_lote(request, token, f'{token}~{dia.isoformat()}',
+                                        res_dia, dados, pasta_saida, dls)
+        _guardar_arquivos_no_banco(lote_dia, arqs)   # re-download não depende da pasta saídas/
+        _guardar_upload_no_banco(lote_dia)           # re-export sobrevive à limpeza de uploads/
+        fps_todos += fps
+        lotes_dia.append(lote_dia)
+
+    # Migra os status do lote legado para os lotes-dia e limpa o que sobrou: o legado
+    # e lotes-dia de dias que não existem mais nesta re-exportação.
+    if status_antigos:
+        for l in lotes_dia:
+            for r in l.repasses.filter(status=Repasse.STATUS_GERADO):
+                st = status_antigos.get((r.tipo, r.medico, r.data, r.clinica))
+                if st:
+                    r.status = st
+                    r.save(update_fields=['status'])
+    (Lote.objects.filter(token__startswith=token)
+     .exclude(token__in={l.token for l in lotes_dia}).delete())
+
+    avisos_dup = _avisos_duplicidade(token, fps_todos)
     # Exportado -> larga o cache de edições (vivem no lote agora; reabrir pelo histórico).
     # O "Continuar edição" deixa de oferecer este import. (Diretoria 2026-06-24.)
     RepasseRascunho.objects.filter(token=token).delete()
     pendencias = _resumir_pendencias(pend)
-    lote = Lote.objects.filter(token=token).only('id').first()
+    if len(lotes_dia) > 1:
+        rot = ', '.join(l.periodo_inicio.strftime('%d/%m') for l in lotes_dia if l.periodo_inicio)
+        info.append(f'Exportação registrada em {len(lotes_dia)} lotes — um por dia ({rot}). '
+                    'Cada dia pode ser excluído ou reaberto separadamente no histórico.')
     ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
                        info=info, edicoes=dados, avisos=avisos_dup,
-                       lote_id=lote.id if lote else None)
+                       lote_id=lotes_dia[0].id if lotes_dia else None)
     return render(request, 'repasses/revisao.html', ctx)
+
+
+def _resultado_do_dia(resultado, dia, ref):
+    """Cópia rasa do resultado só com os blocos/anestesistas DO DIA — para gerar os
+    arquivos e registrar o lote daquele dia. Blocos sem data entram no dia de
+    referência (mesma regra de omie.linhas_relatorio_pagar)."""
+    import copy
+    res = copy.copy(resultado)
+    res.blocos = [b for b in resultado.blocos if (b.data or ref) == dia]
+    res.anestesistas = [a for a in resultado.anestesistas if (a.get('data') or ref) == dia]
+    return res
 
 
 def _memorizar_correcoes(resultado, post):
@@ -1327,10 +1396,9 @@ def baixar_saida(request, pasta, arquivo):
     return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=arquivo)
 
 
-def _guardar_arquivos_no_banco(token, arquivos):
-    """Guarda os bytes dos arquivos gerados no banco, ligados ao lote do token, para
+def _guardar_arquivos_no_banco(lote, arquivos):
+    """Guarda os bytes dos arquivos gerados no banco, ligados ao lote(-dia), para
     re-download mesmo se a pasta saídas/ for limpa. Re-export substitui."""
-    lote = Lote.objects.filter(token=token).first()
     if not lote:
         return
     lote.arquivos.all().delete()
@@ -1340,13 +1408,13 @@ def _guardar_arquivos_no_banco(token, arquivos):
     ])
 
 
-def _guardar_upload_no_banco(token):
-    """Guarda o .xls de origem no lote (uma vez), para re-exportar mesmo que a
-    pasta uploads/ seja limpa."""
-    lote = Lote.objects.filter(token=token).first()
+def _guardar_upload_no_banco(lote):
+    """Guarda o .xls de origem no lote(-dia) (uma vez), para re-exportar/reabrir mesmo
+    que a pasta uploads/ seja limpa — cada lote-dia carrega o arquivo inteiro, então
+    reabrir funciona mesmo que os outros dias tenham sido excluídos."""
     if not lote or lote.upload_conteudo:
         return
-    caminho = _caminho_upload(token)
+    caminho = _caminho_upload(lote.token)   # resolve o token-base internamente
     if caminho and caminho.is_file():
         lote.upload_conteudo = caminho.read_bytes()
         lote.save(update_fields=['upload_conteudo'])
@@ -1432,10 +1500,12 @@ def _fingerprints_pagaveis(resultado):
 
 def _fingerprints_outros_lotes(token):
     """Multiconjunto (Counter) das impressões digitais já exportadas em OUTROS lotes
-    (qualquer upload diferente deste token). O fingerprint inclui a data com ANO e o
-    VALOR, então só casa atendimento idêntico, do mesmo ano e mesmo valor."""
+    (qualquer upload diferente deste token — a família inteira de lotes-dia deste
+    upload é excluída). O fingerprint inclui a data com ANO e o VALOR, então só casa
+    atendimento idêntico, do mesmo ano e mesmo valor."""
     prior = Counter()
-    for outro in Lote.objects.exclude(token=token).only('fingerprints'):
+    for outro in (Lote.objects.exclude(token__startswith=_token_base(token))
+                  .only('fingerprints')):
         prior.update(outro.fingerprints or [])
     return prior
 
@@ -1491,9 +1561,28 @@ def _auditoria_lote(resultado, dados):
     return itens
 
 
-def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
-    """Cria/atualiza o lote (histórico) da exportação e devolve avisos de
-    duplicidade (atendimentos que já saíram em lote de outro arquivo)."""
+def _avisos_duplicidade(token_base, fps):
+    """Avisos de duplicidade: atendimentos que já apareceram em lote de OUTRO upload.
+    A família inteira de lotes-dia deste upload é excluída (token__startswith); NÃO
+    pulamos por nome de arquivo (dois uploads podem ter o mesmo nome). Conta por
+    multiconjunto para não subnotificar atendimentos repetidos."""
+    avisos, novos = [], Counter(fps)
+    # só os campos lidos — NÃO arrasta o upload_conteudo (BinaryField pesado).
+    outros = (Lote.objects.exclude(token__startswith=token_base)
+              .only('id', 'arquivo_nome', 'criado_em', 'fingerprints'))
+    for outro in outros:
+        inter = novos & Counter(outro.fingerprints or [])
+        n = sum(inter.values())
+        if n:
+            avisos.append(f'{n} atendimento(s) já saíram no lote #{outro.id} '
+                          f'({outro.arquivo_nome or "?"}, {outro.criado_em:%d/%m/%Y}) — '
+                          'confira para não pagar 2×.')
+    return avisos
+
+
+def _registrar_lote(request, token_base, token_lote, resultado, dados, pasta_saida, downloads):
+    """Cria/atualiza UM lote (de um dia) da exportação e devolve suas fingerprints.
+    `resultado` aqui já vem filtrado para o dia do lote."""
     fps, medicos, n_repasses = [], set(), 0
     total_pagar = 0.0
     for b in resultado.blocos:
@@ -1511,23 +1600,8 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
     total_receber = sum(float(p.valor) for b in resultado.blocos for p in b.procedimentos
                         if p.valor is not None)
     datas = [p.data for b in resultado.blocos for p in b.procedimentos if p.data]
-    arq_nome = _arquivo_nome(token)
+    arq_nome = _arquivo_nome(token_base)
     quem = request.user.get_username() if request.user.is_authenticated else 'diretoria'
-
-    # Duplicidade: atendimentos que já apareceram em lote de OUTRO upload (token).
-    # A re-exportação do mesmo upload é excluída pelo exclude(token=token); NÃO
-    # pulamos por nome de arquivo (dois uploads podem ter o mesmo nome). Conta por
-    # multiconjunto para não subnotificar atendimentos repetidos.
-    avisos, novos = [], Counter(fps)
-    # só os campos lidos — NÃO arrasta o upload_conteudo (BinaryField pesado).
-    outros = Lote.objects.exclude(token=token).only('id', 'arquivo_nome', 'criado_em', 'fingerprints')
-    for outro in outros:
-        inter = novos & Counter(outro.fingerprints or [])
-        n = sum(inter.values())
-        if n:
-            avisos.append(f'⚠️ {n} atendimento(s) já saíram no lote #{outro.id} '
-                          f'({outro.arquivo_nome or "?"}, {outro.criado_em:%d/%m/%Y}) — '
-                          'confira para não pagar 2×.')
 
     defaults = {
         'criado_por': quem, 'unidade': resultado.unidade or '',
@@ -1542,9 +1616,9 @@ def _registrar_lote(request, token, resultado, dados, pasta_saida, downloads):
     }
     if arq_nome:
         defaults['arquivo_nome'] = arq_nome  # não sobrescreve o nome bom com vazio
-    lote, _ = Lote.objects.update_or_create(token=token, defaults=defaults)
+    lote, _ = Lote.objects.update_or_create(token=token_lote, defaults=defaults)
     _sync_repasses(lote, resultado)
-    return avisos
+    return lote, fps
 
 
 def _sync_repasses(lote, resultado):
@@ -1665,7 +1739,21 @@ def _dias_do_historico():
         d['n_medicos'] = len(d['medicos'])
         d['lotes'] = sorted(d['lotes'])
         d['pendentes'] = d['n'] - d['pagos']
+        d['excluir_lote'] = None
         out.append(d)
+    # Dias cobertos por UM lote-dia (período = o próprio dia) e sem repasse pago podem
+    # ser excluídos direto do histórico — o "excluir só um dia" da diretoria (2026-07-02).
+    unicos = {d['lotes'][0] for d in out if len(d['lotes']) == 1}
+    if unicos:
+        info = {l['id']: l for l in Lote.objects.filter(id__in=unicos)
+                .annotate(pagos_n=Count('repasses', filter=Q(repasses__status=Repasse.STATUS_PAGO)))
+                .values('id', 'periodo_inicio', 'periodo_fim', 'pagos_n')}
+        for d in out:
+            if len(d['lotes']) != 1:
+                continue
+            li = info.get(d['lotes'][0])
+            if li and li['periodo_inicio'] == li['periodo_fim'] == d['data'] and not li['pagos_n']:
+                d['excluir_lote'] = li['id']
     return out
 
 
@@ -1747,11 +1835,36 @@ def relatorio_dias(request):
         rotulo = ', '.join(_fmt(d) for d in dias)
     else:
         rotulo = f'{_fmt(dias[0])} a {_fmt(dias[-1])} ({len(dias)} dias)'
-    conteudo = relatorio.gerar_relatorio_mensal(linhas, f'Repasses dos dias {rotulo}')
-    nome = 'Repasses_Dias_' + '_'.join(f'{d[8:10]}-{d[5:7]}' for d in dias[:6])
+    nome = 'Dias_' + '_'.join(f'{d[8:10]}-{d[5:7]}' for d in dias[:6])
     if len(dias) > 6:
         nome += f'_e_mais_{len(dias) - 6}'
-    return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=f'{nome}.xlsx')
+
+    # formato=omie -> contas a pagar OMIE só dos dias marcados (Fornecedor = CNPJ),
+    # p/ reimportar na OMIE quando um dia muda. Padrão: relatório de conferência.
+    if request.POST.get('formato') == 'omie':
+        livro = regras.carregar_livro_padrao()
+
+        def _fornecedor(nome_med):
+            m = livro.medico_por_nome(nome_med) if livro else None
+            if m and (m.cnpj or m.razao_social):
+                return m.cnpj or m.razao_social
+            return nome_med
+        linhas_omie = [{'nome': _fornecedor(ln.get('medico') or ''),
+                        'categoria': ln.get('categoria') or '',
+                        'valor': float(ln.get('valor') or 0),
+                        'registro': _date.fromisoformat(ln['data']),
+                        'vencimento': (_date.fromisoformat(ln['vencimento'])
+                                       if ln.get('vencimento') else _date.fromisoformat(ln['data'])),
+                        'departamento': ln.get('departamento') or '',
+                        'observacao': f"Repasse {ln.get('medico') or ''} {_fmt(ln['data'])}".strip()}
+                       for ln in linhas]
+        res = omie.gerar_contas_pagar_de_linhas(linhas_omie, settings.OMIE_PAGAR_TEMPLATE)
+        return FileResponse(io.BytesIO(res.conteudo), as_attachment=True,
+                            filename=f'OMIE_Contas_a_Pagar_{nome}.xlsx')
+
+    conteudo = relatorio.gerar_relatorio_mensal(linhas, f'Repasses dos dias {rotulo}')
+    return FileResponse(io.BytesIO(conteudo), as_attachment=True,
+                        filename=f'Repasses_{nome}.xlsx')
 
 
 def _ultimo_dia_mes(mes):
@@ -1974,24 +2087,26 @@ def lote_reabrir(request, pk):
         messages.error(request, 'Este lote tem repasse(s) já PAGO(s) e está fixado. '
                        'Para editar, reverta o status do pagamento na lista de repasses abaixo.')
         return redirect('repasses:lote_detalhe', pk=lote.id)
-    caminho = _caminho_upload(lote.token)
+    base = _token_base(lote.token)          # lotes são por DIA; o upload/revisão é um só
+    caminho = _caminho_upload(base)
     if caminho is None:
         messages.error(request, 'O relatório importado deste lote não está mais disponível — '
                        'não dá para reabrir. Reimporte o arquivo da MedPlus.')
         return redirect('repasses:lote_detalhe', pk=lote.id)
     # Restaura o rascunho deste lote (a importação de outro arquivo zera os rascunhos).
     RepasseRascunho.objects.update_or_create(
-        token=lote.token,
+        token=base,
         defaults={'arquivo_nome': lote.arquivo_nome or '', 'dados': lote.edicoes or {}})
     try:
-        resultado, aviso, dados = _preparar_revisao(lote.token)
+        resultado, aviso, dados = _preparar_revisao(base)
     except medplus.ErroLeituraMedPlus as exc:
         messages.error(request, f'Não foi possível ler o relatório do lote: {exc}')
         return redirect('repasses:lote_detalhe', pk=lote.id)
-    info = [f'✏️ Editando o lote #{lote.id} ({lote.arquivo_nome or lote.token}). '
-            'Faça as alterações e clique em Exportar para atualizar este mesmo lote.']
+    info = [f'Editando o lote #{lote.id} ({lote.arquivo_nome or base}). A revisão abre o '
+            'arquivo INTEIRO; ao Exportar, todos os dias deste arquivo são atualizados '
+            '(um lote por dia).']
     return render(request, 'repasses/revisao.html',
-                  _ctx_revisao(resultado, lote.token, aviso, info=info, edicoes=dados))
+                  _ctx_revisao(resultado, base, aviso, info=info, edicoes=dados))
 
 
 def lote_excluir(request, pk):
@@ -2003,9 +2118,14 @@ def lote_excluir(request, pk):
         messages.error(request, 'Este lote tem repasse(s) já PAGO(s) e está fixado — não pode ser '
                        'excluído. Reverta o status do pagamento se precisar mesmo apagá-lo.')
         return redirect('repasses:lote_detalhe', pk=lote.id)
-    rotulo = lote.arquivo_nome or lote.token
+    if lote.periodo_inicio and lote.periodo_inicio == lote.periodo_fim:
+        rotulo = f'dia {lote.periodo_inicio:%d/%m/%Y}'      # lote-dia
+    else:
+        rotulo = lote.arquivo_nome or lote.token
     lote.delete()
-    messages.success(request, f'Lote #{pk} ({rotulo}) excluído do histórico.')
+    messages.success(request, f'Lote #{pk} ({rotulo}) excluído do histórico. '
+                     'Se o dia voltar a ser necessário, reabra outro lote do mesmo '
+                     'arquivo e re-exporte, ou reimporte o relatório.')
     return redirect('repasses:lotes')
 
 

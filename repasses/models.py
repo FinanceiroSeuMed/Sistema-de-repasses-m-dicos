@@ -286,12 +286,14 @@ class RepasseRascunho(models.Model):
 class Lote(models.Model):
     """Registro de um processamento exportado — o histórico/auditoria do sistema.
 
-    Cada exportação vira (ou atualiza) um lote ligado ao arquivo importado: guarda
-    quando, quem, o período, os totais, os arquivos gerados (para re-baixar sem
-    subir de novo), o que foi ajustado manualmente (auditoria) e as "impressões
-    digitais" dos atendimentos (para avisar se algo já saiu num lote anterior)."""
+    Cada exportação vira (ou atualiza) UM LOTE POR DIA do período (diretoria
+    2026-07-02): o token é '<token do upload>~AAAA-MM-DD', permitindo excluir um
+    único dia sem re-exportar o resto. Cada lote guarda quando, quem, o dia, os
+    totais, os arquivos gerados (para re-baixar sem subir de novo), o que foi
+    ajustado manualmente (auditoria) e as "impressões digitais" dos atendimentos
+    (para avisar se algo já saiu num lote anterior)."""
 
-    token = models.CharField('Token do upload', max_length=40, unique=True, db_index=True)
+    token = models.CharField('Token do upload', max_length=64, unique=True, db_index=True)
     criado_em = models.DateTimeField('Criado em', auto_now_add=True)
     atualizado_em = models.DateTimeField('Atualizado em', auto_now=True)
     criado_por = models.CharField('Por', max_length=150, blank=True)

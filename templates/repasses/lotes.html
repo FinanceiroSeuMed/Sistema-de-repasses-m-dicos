@@ -85,16 +85,21 @@
                     <td class="num">{{ d.n_medicos }}</td>
                     <td class="num">{{ d.total|moeda }}</td>
                     <td>{% if d.sem_repasse %}<span class="badge badge-zero">sem repasse (confirmado)</span>{% elif d.pendentes %}<span class="badge badge-pendente">{{ d.pendentes }} pendente(s)</span>{% else %}<span class="badge badge-ok">tudo pago</span>{% endif %}</td>
-                    <td>{% for lid in d.lotes %}<a class="botao botao-mini" href="{% url 'repasses:lote_detalhe' lid %}">Lote {{ lid }}</a>{% if not forloop.last %} {% endif %}{% empty %}—{% endfor %}</td>
+                    <td>
+                        {% for lid in d.lotes %}<a class="botao botao-mini" href="{% url 'repasses:lote_detalhe' lid %}">Lote {{ lid }}</a>{% if not forloop.last %} {% endif %}{% empty %}—{% endfor %}
+                        {% if d.excluir_lote %}<button type="submit" form="excluir-dia-{{ d.excluir_lote }}" class="botao botao-mini" onclick="return confirm('Excluir o dia {{ d.data|date:'d/m/Y' }} do histórico? Os repasses e arquivos deste dia serão removidos; os outros dias não mudam.')" title="Excluir só este dia (os demais dias do arquivo ficam)">Excluir dia</button>{% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        <div style="margin-top:10px">
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button type="submit" class="botao">Emitir relatório dos dias selecionados</button>
-            <span class="subtitulo-escuro" style="margin-left:8px"><small>Gera o "Repasses em Aberto" apenas dos dias marcados — para conferir o contas a pagar na OMIE.</small></span>
+            <button type="submit" class="botao" name="formato" value="omie">Baixar OMIE a pagar (dias)</button>
+            <span class="subtitulo-escuro"><small>O relatório é o "Repasses em Aberto" só dos dias marcados; o OMIE a pagar sai pronto para importar, também só desses dias.</small></span>
         </div>
     </form>
+    {% for d in dias %}{% if d.excluir_lote %}<form id="excluir-dia-{{ d.excluir_lote }}" method="post" action="{% url 'repasses:lote_excluir' d.excluir_lote %}">{% csrf_token %}</form>{% endif %}{% endfor %}
 </section>
 {% else %}
 <div class="alerta alerta-info">
