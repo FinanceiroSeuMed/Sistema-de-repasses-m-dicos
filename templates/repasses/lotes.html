@@ -52,7 +52,7 @@
             {% for num, nome in meses %}<option value="{{ num }}"{% if mes_sel == num|stringformat:"s" %} selected{% endif %}>{{ nome }}</option>{% endfor %}
         </select>
     </div>
-    {% if ano_sel or mes_sel %}<a class="botao botao-mini" href="{% url 'repasses:lotes' %}">Limpar filtro</a>{% endif %}
+    {% if ano_sel or mes_sel %}<a class="botao botao-mini" href="{% url 'repasses:lotes' %}?ano=&mes=" title="Mostrar todos os meses e anos">Ver tudo</a>{% endif %}
 </form>
 
 <section class="cards-indicadores">
@@ -103,8 +103,13 @@
 </section>
 {% else %}
 <div class="alerta alerta-info">
+    {% if ano_sel or mes_sel %}
+    Nenhum lançamento no período filtrado. <a href="{% url 'repasses:lotes' %}?ano=&mes=">Ver tudo</a>
+    ou escolha outro mês/ano acima.
+    {% else %}
     Nenhum lançamento ainda. Ao <a href="{% url 'repasses:importar' %}">importar</a> e <strong>exportar</strong>
     um repasse, cada dia do período aparece aqui como um lançamento.
+    {% endif %}
 </div>
 {% endif %}
 

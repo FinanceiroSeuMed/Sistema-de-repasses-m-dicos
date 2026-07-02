@@ -1262,7 +1262,7 @@ class LotePorDiaTests(TestCase):
         for l in resto:
             self.assertTrue(Lote.objects.filter(id=l.id).exists())
         # o dia excluído some do histórico por dia; os demais continuam
-        resp = self.client.get('/lotes/')
+        resp = self.client.get('/lotes/', {'ano': '', 'mes': ''})
         dias_hist = {d['data'] for d in resp.context['dias']}
         self.assertNotIn(alvo.periodo_inicio, dias_hist)
         self.assertIn(resto[0].periodo_inicio, dias_hist)
@@ -1456,7 +1456,7 @@ class HistoricoPorDiaTests(TestCase):
 
     def test_um_lancamento_por_dia(self):
         from django.test import Client
-        r = Client().get('/lotes/')
+        r = Client().get('/lotes/', {'ano': '', 'mes': ''})   # sem filtro (= Todos)
         dias = {d['iso']: d for d in r.context['dias']}
         self.assertEqual(set(dias), {'2026-06-12', '2026-06-13', '2026-06-15'})
         self.assertEqual(float(dias['2026-06-12']['total']), 100.0)
@@ -1468,7 +1468,7 @@ class HistoricoPorDiaTests(TestCase):
         from django.test import Client
         from repasses.models import DiaSemRepasse
         DiaSemRepasse.objects.create(data=datetime.date(2026, 6, 14))
-        r = Client().get('/lotes/')
+        r = Client().get('/lotes/', {'ano': '', 'mes': ''})
         dias = {d['iso']: d for d in r.context['dias']}
         self.assertIn('2026-06-14', dias)                    # aparece no histórico
         self.assertEqual(float(dias['2026-06-14']['total']), 0.0)   # com valor nulo
@@ -1560,7 +1560,19 @@ class HistoricoFiltroTests(TestCase):
 
     def test_sem_filtro_mostra_todos(self):
         from django.test import Client
-        r = Client().get('/lotes/')
+        r = Client().get('/lotes/', {'ano': '', 'mes': ''})    # "Todos" explícito
         self.assertEqual(len(r.context['lotes']), 3)
         self.assertIn(2026, r.context['anos'])
         self.assertIn(2025, r.context['anos'])
+
+    def test_primeira_visita_preseleciona_mes_atual(self):
+        import datetime
+        from django.test import Client
+        hoje = datetime.date.today()
+        r = Client().get('/lotes/')                            # sem parâmetros na URL
+        self.assertEqual(r.context['ano_sel'], str(hoje.year))
+        self.assertEqual(r.context['mes_sel'], str(hoje.month))
+        # escolher "Todos" (parâmetros vazios) NÃO volta para o mês atual
+        r = Client().get('/lotes/', {'ano': '', 'mes': ''})
+        self.assertEqual(r.context['ano_sel'], '')
+        self.assertEqual(r.context['mes_sel'], '')

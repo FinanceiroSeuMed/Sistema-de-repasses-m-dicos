@@ -1761,8 +1761,16 @@ def lotes_lista(request):
     """Histórico com UM LANÇAMENTO POR DIA (+ a lista dos arquivos exportados/lotes).
     Filtros de mês/ano, confirmação de dias sem repasse e seleção de dias para emitir
     relatório específico (conferência do contas a pagar na OMIE)."""
-    ano = request.GET.get('ano') or ''
-    mes = request.GET.get('mes') or ''
+    ano = request.GET.get('ano')
+    mes = request.GET.get('mes')
+    if ano is None and mes is None:
+        # Primeira visita (sem filtro na URL): pré-seleciona o mês/ano ATUAL
+        # (diretoria 2026-07-02). Escolher "Todos" envia ano=/mes= vazios e passa.
+        from datetime import date as _hoje_cls
+        hoje = _hoje_cls.today()
+        ano, mes = str(hoje.year), str(hoje.month)
+    ano = ano or ''
+    mes = mes or ''
 
     dias_todos = _dias_do_historico()
     dias = [d for d in dias_todos
