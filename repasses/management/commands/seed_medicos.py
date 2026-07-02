@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Popula/atualiza o cadastro de médicos a partir da planilha de regras (anexo 5)."""
 
+import os
 import re
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from repasses.models import Medico
@@ -15,24 +17,26 @@ def _corrigir_nome(nome: str) -> str:
     return re.sub(r'(?i)rediente', 'Residente', nome)   # "Redientes" -> "Residentes"
 
 
-# Razão social + CNPJ por médico (diretoria 2026-06-28). O CNPJ é a CHAVE do
-# Fornecedor no contas a pagar da OMIE. Casa por trecho do nome normalizado.
+# Razão social + Nome Fantasia + CNPJ por médico (diretoria 2026-07-02). O CNPJ é a
+# CHAVE do Fornecedor no contas a pagar da OMIE. Casa por trecho do nome normalizado.
+# (razao_social, nome_fantasia, cnpj) — texto verbatim da diretoria; só os CNPJs foram
+# normalizados p/ o formato XX.XXX.XXX/XXXX-XX (eram a chave e vinham com typo).
 _PJ_OVERRIDES = {
-    'heric':      ('HERIC MASSAAKI SAKAMOTO', '18.145.426/0001-07'),
-    'tiezzi':     ('TIEZZE & TIEZZI SERVIÇOS MEDICOS LTDA', '65.358.679/0001-30'),
-    'zandonadi':  ('ZANDONADI SERVIÇOS MEDICOS LTDA', '39.898.771/0001-83'),
-    'alessander': ('ALESSANDER TIEO TSUNETO LTDA', '34.952.198/0001-25'),
-    'carolina':   ('DUARTE CARDIOLOGIA LTDA', '30.848.132/0001-39'),
-    'tharcila':   ('GASTREN - CLINICA MEDICA S/S LTDA', '17.357.063/0001-00'),
-    'thalia':     ('THALIA MACARIS OFTALMOLOGIA LTDA', '59.883.866/0001-30'),
-    'isabela':    ('ISABELA MIWA MAEDA CLINICA MEDICA', '35.773.858/0001-73'),
-    'marilia':    ('M A F PAPA SERVIÇOS MEDICOS LTDA', '39.776.675/0001-62'),
-    'suellen':    ('S.H.O SERVICOS MEDICOS LTDA', '41.050.531/0001-76'),
-    'keiti':      ('CLINICA SHIRASU LTDA', '15.240.760/0001-43'),
-    'rodolpho':   ('IKIGAI OFTALMOLOGIA LTDA', '58.456.887/0001-07'),
-    'ana paula':  ('GUERMANDI SERVICOS MEDICOS LTDA', '22.295.697/0001-08'),
-    'licia':      ('LICIA INAZAWA DA SILVA CLINICA MEDICA LTDA', '35.736.953/0001-05'),
-    'roberta':    ('R.S.GOMES LTDA', '22.743.146/0001-60'),
+    'heric':      ('HERIC MASSAAKI SAKAMOTO', 'HMS CLINICA', '18.145.426/0001-07'),
+    'tiezzi':     ('TIEZZE & TIEZZI SERVIÇOS MEDICOS LTDA', 'TIEZZE & TIEZZI SERVIÇOS MEDICOS LTDA', '65.358.679/0001-30'),
+    'zandonadi':  ('ZANDONADI SERVIÇOS MEDICOS LTDA', 'ZANDONADI SERVIÇOS', '39.898.771/0001-83'),
+    'alessander': ('ALESSANDER TIEO TSUNETO LTDA', 'ALESSANDER TIEO TSUNETO LTDA', '34.952.198/0001-25'),
+    'carolina':   ('DUARTE CARDIOLOGIA TLDA', 'DUARTE CARDIOLOGIA TLDA', '30.848.132/0001-39'),
+    'tharcila':   ('GASTREN - CLINICA MEDICA S/S LTDA', 'GASTREN', '17.357.063/0001-00'),
+    'thalia':     ('THALIA MACARIS OFTALMOLOGIA LTDA', 'THALIA MACARIS OFTALMOLOGIA', '59.883.866/0001-30'),
+    'isabela':    ('ISABELA MIWA MAEDA CLINICA MEDICA', 'I.M.M. CLINICA MEDICA', '35.773.858/0001-73'),
+    'marilia':    ('M A F PAPA SERVIÇOS MEDICOS LTDA', 'M A F PAPA SERVIÇOS MEDICOS LTDA', '39.776.675/0001-62'),
+    'suellen':    ('S.H.O SERVICOS MEDICOS LTDA', 'S.H.O SERVICOS MEDICOS LTDA', '41.050.531/0001-76'),
+    'keiti':      ('CLINICA SHIRASU LTDA', 'INSTITUTO DA VISAO DE CIANORTE', '15.240.760/0001-43'),
+    'rodolpho':   ('IKIGAI OFTALMOLOGIA LTDA', 'IKIGAI OFTALMOLOGIA LTDA', '58.456.887/0001-07'),
+    'ana paula':  ('GUERMANDI SERVICOS MEDICOS LTDA', 'GUERMANDI SERVICOS MEDICOS LTDA', '22.295.697/0001-08'),
+    'licia':      ('LICIA INAZAWA DA SILVA CLINICA MEDICA LTDA', 'LICIA INAZAWA DA SILVA CLINICA MEDICA LTDA', '35.736.953/0001-05'),
+    'roberta':    ('R.S.GOMES LTDA', 'R.S.GOMES LTDA', '22.743.146/0001-60'),
 }
 
 # Observações padronizadas pela diretoria (2026-06-27).
@@ -56,7 +60,15 @@ class Command(BaseCommand):
     help = 'Popula/atualiza o cadastro de médicos a partir da planilha de regras (anexo 5).'
 
     def handle(self, *args, **options):
-        livro = regras.carregar_livro_padrao()
+        # Lê a lista de médicos da PLANILHA (anexo 5) — a fonte canônica do cadastro.
+        # NÃO usa carregar_livro_padrao(): quando já existem regras no banco, ele passa
+        # a ler os médicos do PRÓPRIO banco, e o seed viraria um no-op circular — não
+        # conseguiria restaurar o cadastro caso ele se perdesse (diretoria 2026-07-02).
+        caminho = getattr(settings, 'REGRAS_REPASSE_PATH', '')
+        if caminho and os.path.exists(caminho):
+            livro = regras.carregar_regras(caminho)
+        else:
+            livro = regras.carregar_livro_padrao()
         if livro is None:
             self.stderr.write(self.style.ERROR(
                 'Planilha de regras não encontrada (settings.REGRAS_REPASSE_PATH).'))
@@ -100,11 +112,12 @@ class Command(BaseCommand):
 
             if rm.razao_social:
                 medico.razao_social = rm.razao_social
-            # override da diretoria (tem prioridade sobre a planilha): razão + CNPJ.
+            # override da diretoria (tem prioridade sobre a planilha): razão + fantasia + CNPJ.
             # O CNPJ é a chave do Fornecedor no contas a pagar da OMIE.
-            for frag, (razao, cnpj) in _PJ_OVERRIDES.items():
+            for frag, (razao, fantasia, cnpj) in _PJ_OVERRIDES.items():
                 if frag in chave:
                     medico.razao_social = razao
+                    medico.nome_fantasia = fantasia
                     medico.cnpj = cnpj
             if rm.obs:
                 medico.regra_obs = rm.obs

@@ -16,8 +16,8 @@
 {% if dias_faltantes %}
 <div class="alerta alerta-faltantes">
     <strong>Atenção — dia(s) sem repasse exportado:</strong>
-    {{ dias_faltantes|slice:":15"|join:", " }}{% if dias_faltantes|length > 15 %} … e mais {{ dias_faltantes|length|add:"-15" }}{% endif %}.
-    Confira se faltou lançar esses dias (domingos não contam).
+    {% for d in dias_faltantes|slice:":15" %}{{ d.label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if dias_faltantes|length > 15 %} … e mais {{ dias_faltantes|length|add:"-15" }}{% endif %}.
+    Confira se faltou lançar esses dias (domingos não contam). No <strong>Histórico</strong> dá para confirmar que um dia realmente não teve repasse.
 </div>
 {% endif %}
 
@@ -80,7 +80,7 @@
         <input type="hidden" name="novo_count" value="{{ medicos_novos|length }}">
         <table class="tabela">
             <thead>
-                <tr><th>Nome</th><th>Categoria *</th><th>Razão Social</th><th>CNPJ</th><th>Chave PIX</th><th>Regra / observação</th><th>Papéis extras</th></tr>
+                <tr><th>Nome</th><th>Categoria *</th><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Chave PIX</th><th>Regra / observação</th><th>Papéis extras</th></tr>
             </thead>
             <tbody>
                 {% for nome in medicos_novos %}
@@ -93,6 +93,7 @@
                         </select>
                     </td>
                     <td><input type="text" class="inp-hon" name="novo_razao_{{ forloop.counter0 }}" placeholder="(razão social)" style="width:100%"></td>
+                    <td><input type="text" class="inp-hon" name="novo_fantasia_{{ forloop.counter0 }}" placeholder="(nome fantasia)" style="width:100%"></td>
                     <td><input type="text" class="inp-hon" name="novo_cnpj_{{ forloop.counter0 }}" placeholder="(Fornecedor na OMIE)" style="width:100%"></td>
                     <td><input type="text" class="inp-hon" name="novo_pix_{{ forloop.counter0 }}" placeholder="(chave PIX)" style="width:100%"></td>
                     <td><input type="text" class="inp-hon" name="novo_regra_{{ forloop.counter0 }}" placeholder="ex.: R$ 800/semana; não recebe em catarata" style="width:100%"></td>

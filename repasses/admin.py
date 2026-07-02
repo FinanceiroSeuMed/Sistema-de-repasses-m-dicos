@@ -1,7 +1,7 @@
 from django.contrib import admin
 
-from .models import (AjusteMensal, ClasseMemorizada, CorrecaoMemorizada, Lote, Medico,
-                     RegraRepasse, Repasse)
+from .models import (AjusteMensal, ClasseMemorizada, CorrecaoMemorizada, DiaSemRepasse,
+                     Lote, Medico, RegraRepasse, Repasse)
 
 
 @admin.register(AjusteMensal)
@@ -12,17 +12,24 @@ class AjusteMensalAdmin(admin.ModelAdmin):
     readonly_fields = ('criado_em', 'atualizado_em')
 
 
+@admin.register(DiaSemRepasse)
+class DiaSemRepasseAdmin(admin.ModelAdmin):
+    list_display = ('data', 'criado_por', 'criado_em')
+    readonly_fields = ('criado_em',)
+
+
 @admin.register(Medico)
 class MedicoAdmin(admin.ModelAdmin):
     list_display = ('nome', 'categoria', 'eh_fellow', 'eh_anestesista', 'razao_social',
-                    'cnpj', 'chave_pix', 'ativo')
+                    'nome_fantasia', 'cnpj', 'chave_pix', 'ativo')
     list_filter = ('categoria', 'eh_fellow', 'eh_preceptor', 'eh_anestesista', 'ativo')
-    search_fields = ('nome', 'cpf', 'crm', 'email', 'razao_social', 'cnpj', 'chave_pix')
+    search_fields = ('nome', 'cpf', 'crm', 'email', 'razao_social', 'nome_fantasia',
+                     'cnpj', 'chave_pix')
     readonly_fields = ('criado_em', 'atualizado_em')
     fieldsets = (
         ('Identificação', {
             'fields': ('nome', 'categoria', ('eh_fellow', 'eh_preceptor', 'eh_anestesista'),
-                       'razao_social', ('cnpj', 'chave_pix'), 'regra_obs'),
+                       'razao_social', 'nome_fantasia', ('cnpj', 'chave_pix'), 'regra_obs'),
         }),
         ('Documentos', {
             'fields': ('cpf', ('crm', 'uf_crm'), 'especialidade'),

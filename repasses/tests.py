@@ -1296,3 +1296,91 @@ class DiasFaltantesTests(TestCase):
     def test_sem_repasse_nenhum_aviso(self):
         from repasses import views
         self.assertEqual(views._dias_sem_repasse(), [])
+
+    def test_dia_confirmado_sai_do_aviso_e_volta_ao_remover(self):
+        import datetime
+        from repasses import views
+        from repasses.models import Lote, Repasse, DiaSemRepasse
+        hoje = datetime.date.today()
+        lote = Lote.objects.create(token='t-confirma')
+        for d in (hoje - datetime.timedelta(days=10), hoje - datetime.timedelta(days=2)):
+            Repasse.objects.create(lote=lote, medico='Dr. X', data=d, valor=100)
+        faltantes = views._dias_sem_repasse()
+        self.assertTrue(faltantes)                         # há lacuna a avisar
+        alvo = faltantes[0]
+        DiaSemRepasse.objects.create(data=alvo)             # diretoria confirma: não houve
+        self.assertNotIn(alvo, views._dias_sem_repasse())   # sai do aviso
+        DiaSemRepasse.objects.filter(data=alvo).delete()    # confirmação removida
+        self.assertIn(alvo, views._dias_sem_repasse())      # volta a ser solicitado
+
+    def test_endpoints_confirmar_e_remover(self):
+        import datetime
+        from django.test import Client
+        from repasses.models import DiaSemRepasse
+        c = Client()
+        dia = datetime.date(2026, 6, 26)
+        r = c.post('/lotes/sem-repasse/', {'data': dia.isoformat()})
+        self.assertEqual(r.status_code, 302)
+        obj = DiaSemRepasse.objects.get(data=dia)           # marcador criado
+        r = c.post('/lotes/sem-repasse/%d/remover/' % obj.id)
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(DiaSemRepasse.objects.filter(data=dia).exists())
+
+    def test_confirmar_data_invalida_404(self):
+        from django.test import Client
+        r = Client().post('/lotes/sem-repasse/', {'data': 'xx/yy'})
+        self.assertEqual(r.status_code, 404)
+
+
+class SeedFantasiaTests(TestCase):
+    """Recuperação do cadastro ('banco se perdeu'): seed_medicos lê a PLANILHA (não o
+    banco), restaurando os médicos com Nome Fantasia + CNPJ mesmo com o banco vazio."""
+
+    def test_seed_restaura_medicos_com_fantasia_e_cnpj(self):
+        from django.core.management import call_command
+        from repasses.models import Medico
+        self.assertEqual(Medico.objects.count(), 0)         # banco perdido
+        call_command('seed_medicos', verbosity=0)
+        self.assertGreaterEqual(Medico.objects.count(), 20)  # cadastro restaurado da planilha
+        heric = Medico.objects.filter(nome__icontains='Heric').first()
+        self.assertIsNotNone(heric)
+        self.assertEqual(heric.nome_fantasia, 'HMS CLINICA')
+        self.assertEqual(heric.cnpj, '18.145.426/0001-07')
+        keiti = Medico.objects.filter(nome__icontains='Keiti').first()
+        self.assertTrue(keiti.eh_preceptor)                 # preceptor da Equipe Dr. Keiti
+        self.assertEqual(keiti.nome_fantasia, 'INSTITUTO DA VISAO DE CIANORTE')
+        # residente não tem PJ, mas herda a observação padrão
+        arthur = Medico.objects.filter(nome__icontains='Arthur').first()
+        self.assertEqual(arthur.nome_fantasia, '')
+        self.assertEqual(arthur.regra_obs, 'Não recebem em Oftalmo')
+
+
+class HistoricoFiltroTests(TestCase):
+    """Filtros de mês e ano no histórico (pelo período do atendimento)."""
+
+    def setUp(self):
+        import datetime
+        from repasses.models import Lote
+        Lote.objects.create(token='h-jun', periodo_inicio=datetime.date(2026, 6, 3),
+                            periodo_fim=datetime.date(2026, 6, 3))
+        Lote.objects.create(token='h-mai', periodo_inicio=datetime.date(2026, 5, 7),
+                            periodo_fim=datetime.date(2026, 5, 7))
+        Lote.objects.create(token='h-2025', periodo_inicio=datetime.date(2025, 6, 9),
+                            periodo_fim=datetime.date(2025, 6, 9))
+
+    def test_filtra_por_mes_e_ano(self):
+        from django.test import Client
+        r = Client().get('/lotes/', {'ano': '2026', 'mes': '6'})
+        self.assertEqual({l.token for l in r.context['lotes']}, {'h-jun'})
+
+    def test_filtra_so_por_ano(self):
+        from django.test import Client
+        r = Client().get('/lotes/', {'ano': '2026'})
+        self.assertEqual({l.token for l in r.context['lotes']}, {'h-jun', 'h-mai'})
+
+    def test_sem_filtro_mostra_todos(self):
+        from django.test import Client
+        r = Client().get('/lotes/')
+        self.assertEqual(len(r.context['lotes']), 3)
+        self.assertIn(2026, r.context['anos'])
+        self.assertIn(2025, r.context['anos'])

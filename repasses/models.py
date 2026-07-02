@@ -35,6 +35,8 @@ class Medico(models.Model):
                                  default=CATEGORIA_MEDICO)
     razao_social = models.CharField('Razão Social', max_length=200, blank=True,
                                     help_text='Razão social do médico (PJ).')
+    nome_fantasia = models.CharField('Nome Fantasia', max_length=200, blank=True,
+                                     help_text='Nome fantasia da clínica/PJ do médico.')
     cnpj = models.CharField('CNPJ', max_length=20, blank=True,
                             help_text='CNPJ do médico (PJ) — é a CHAVE do Fornecedor no contas a pagar da OMIE.')
     chave_pix = models.CharField('Chave PIX', max_length=80, blank=True,
@@ -92,6 +94,24 @@ class AjusteMensal(models.Model):
 
     def __str__(self):
         return f'{self.medico.nome} {self.ano_mes}: {self.valor}'
+
+
+class DiaSemRepasse(models.Model):
+    """Dia confirmado pela diretoria como SEM repasse (não houve atendimento a repassar).
+    Some do aviso de 'dias sem repasse' e aparece no histórico como marcador de valor
+    nulo. Apagar volta a solicitar o repasse daquele dia. (Diretoria 2026-07-02.)"""
+
+    data = models.DateField('Dia', unique=True)
+    criado_em = models.DateTimeField('Confirmado em', auto_now_add=True)
+    criado_por = models.CharField('Por', max_length=150, blank=True)
+
+    class Meta:
+        verbose_name = 'Dia sem repasse (confirmado)'
+        verbose_name_plural = 'Dias sem repasse (confirmados)'
+        ordering = ['-data']
+
+    def __str__(self):
+        return f'Sem repasse — {self.data:%d/%m/%Y}'
 
 
 class CorrecaoMemorizada(models.Model):

@@ -13,7 +13,7 @@ from django.urls import reverse
 
 from .forms import ImportarMedPlusForm
 from .models import (AjusteMensal, ArquivoSaida, ClasseMemorizada, CorrecaoMemorizada,
-                     Lote, Medico, RegraRepasse, Repasse, RepasseRascunho)
+                     DiaSemRepasse, Lote, Medico, RegraRepasse, Repasse, RepasseRascunho)
 from .services import correcoes, medplus, omie, regras, repasse
 
 
@@ -925,6 +925,7 @@ def cadastrar_medicos(request):
         Medico.objects.create(
             nome=nome, categoria=categoria,
             razao_social=(request.POST.get(f'novo_razao_{i}') or '').strip(),
+            nome_fantasia=(request.POST.get(f'novo_fantasia_{i}') or '').strip(),
             cnpj=(request.POST.get(f'novo_cnpj_{i}') or '').strip(),
             chave_pix=(request.POST.get(f'novo_pix_{i}') or '').strip(),
             regra_obs=(request.POST.get(f'novo_regra_{i}') or '').strip(),
@@ -1581,6 +1582,8 @@ def _dias_sem_repasse():
     from datetime import date, timedelta
     dias = set(Repasse.objects.exclude(data__isnull=True)
                .values_list('data', flat=True).distinct())
+    # dias que a diretoria CONFIRMOU não terem repasse contam como "cobertos".
+    dias |= set(DiaSemRepasse.objects.values_list('data', flat=True))
     if not dias:
         return []
     hoje = date.today()
@@ -1594,13 +1597,58 @@ def _dias_sem_repasse():
 
 
 def _dias_faltantes_fmt():
-    """Dias sem repasse exportado, já formatados 'DD/MM' — para o aviso persistente."""
-    return [d.strftime('%d/%m') for d in _dias_sem_repasse()]
+    """Dias sem repasse exportado: [{iso, label}] — para o aviso persistente e o botão
+    de confirmar 'não houve repasse'."""
+    return [{'iso': d.isoformat(), 'label': d.strftime('%d/%m/%Y')} for d in _dias_sem_repasse()]
+
+
+def confirmar_sem_repasse(request):
+    """A diretoria confirma que um dia NÃO teve repasse (não havia o que exportar). Cria o
+    marcador — o dia some do aviso e aparece no histórico com valor nulo. (2026-07-02.)"""
+    if request.method != 'POST':
+        raise Http404()
+    from datetime import date
+    try:
+        dia = date.fromisoformat((request.POST.get('data') or '').strip())
+    except ValueError:
+        raise Http404('Data inválida.')
+    quem = request.user.get_username() if request.user.is_authenticated else 'diretoria'
+    DiaSemRepasse.objects.get_or_create(data=dia, defaults={'criado_por': quem})
+    messages.success(request, f'Dia {dia:%d/%m/%Y} confirmado sem repasse.')
+    return redirect('repasses:lotes')
+
+
+def remover_sem_repasse(request, pk):
+    """Remove a confirmação de 'dia sem repasse' — o dia volta a ser solicitado no aviso."""
+    if request.method != 'POST':
+        raise Http404()
+    obj = DiaSemRepasse.objects.filter(pk=pk).first()
+    if obj:
+        dia = obj.data
+        obj.delete()
+        messages.info(request, f'Dia {dia:%d/%m/%Y} voltou a ser solicitado (confirmação removida).')
+    return redirect('repasses:lotes')
+
+
+_MESES_FILTRO = [(1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'), (4, 'Abril'), (5, 'Maio'),
+                 (6, 'Junho'), (7, 'Julho'), (8, 'Agosto'), (9, 'Setembro'), (10, 'Outubro'),
+                 (11, 'Novembro'), (12, 'Dezembro')]
 
 
 def lotes_lista(request):
-    """Histórico de lotes processados, com o que ainda falta pagar."""
-    lotes = list(Lote.objects.all())
+    """Histórico de lotes processados, com o que ainda falta pagar. Filtros de mês/ano
+    (por período do atendimento) e confirmação de dias sem repasse."""
+    qs = Lote.objects.all()
+    # Anos disponíveis (do período dos atendimentos) para o filtro.
+    anos = sorted({d.year for d in Lote.objects.exclude(periodo_inicio__isnull=True)
+                   .values_list('periodo_inicio', flat=True)}, reverse=True)
+    ano = request.GET.get('ano') or ''
+    mes = request.GET.get('mes') or ''
+    if ano.isdigit():
+        qs = qs.filter(periodo_inicio__year=int(ano))
+    if mes.isdigit():
+        qs = qs.filter(periodo_inicio__month=int(mes))
+    lotes = list(qs)
     pendentes_total = 0
     for l in lotes:
         reps = list(l.repasses.all())
@@ -1614,6 +1662,11 @@ def lotes_lista(request):
         'total_pagar': sum((l.total_pagar for l in lotes), 0),
         'pendentes_total': pendentes_total,
         'dias_faltantes': _dias_faltantes_fmt(),
+        'dias_confirmados': list(DiaSemRepasse.objects.all()),
+        'anos': anos,
+        'meses': _MESES_FILTRO,
+        'ano_sel': ano,
+        'mes_sel': mes,
     })
 
 

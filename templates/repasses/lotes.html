@@ -15,11 +15,45 @@
 
 {% if dias_faltantes %}
 <div class="alerta alerta-faltantes">
-    <strong>Atenção — dia(s) sem repasse exportado:</strong>
-    {{ dias_faltantes|slice:":15"|join:", " }}{% if dias_faltantes|length > 15 %} … e mais {{ dias_faltantes|length|add:"-15" }}{% endif %}.
-    Confira se faltou lançar esses dias (domingos não contam).
+    <p style="margin:0 0 8px"><strong>Atenção — dia(s) sem repasse exportado.</strong> Confira se faltou
+        lançar. Se um dia realmente <em>não teve</em> repasse, confirme abaixo para tirá-lo do aviso
+        (domingos já não contam).</p>
+    <div class="dias-faltantes-botoes">
+        {% for d in dias_faltantes %}
+        <form method="post" action="{% url 'repasses:confirmar_sem_repasse' %}" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="data" value="{{ d.iso }}">
+            <button type="submit" class="botao botao-mini" title="Confirmar que {{ d.label }} não teve repasse">{{ d.label }} — não houve</button>
+        </form>
+        {% endfor %}
+    </div>
 </div>
 {% endif %}
+
+{% if dias_confirmados %}
+<div class="alerta alerta-info">
+    <strong>Dias confirmados sem repasse (R$ 0,00):</strong>
+    {% for c in dias_confirmados %}<span class="dia-confirmado">{{ c.data|date:"d/m/Y" }}<form method="post" action="{% url 'repasses:remover_sem_repasse' c.id %}" style="display:inline">{% csrf_token %}<button type="submit" class="link-remover" title="Voltar a solicitar o repasse deste dia">desfazer</button></form></span>{% if not forloop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<form method="get" class="filtro-mes" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:14px 0">
+    <div>
+        <label class="resumo-rotulo" for="f-ano">Ano</label><br>
+        <select name="ano" id="f-ano" class="inp-classe" onchange="this.form.submit()">
+            <option value="">Todos</option>
+            {% for a in anos %}<option value="{{ a }}"{% if ano_sel == a|stringformat:"s" %} selected{% endif %}>{{ a }}</option>{% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="resumo-rotulo" for="f-mes">Mês</label><br>
+        <select name="mes" id="f-mes" class="inp-classe" onchange="this.form.submit()">
+            <option value="">Todos</option>
+            {% for num, nome in meses %}<option value="{{ num }}"{% if mes_sel == num|stringformat:"s" %} selected{% endif %}>{{ nome }}</option>{% endfor %}
+        </select>
+    </div>
+    {% if ano_sel or mes_sel %}<a class="botao botao-mini" href="{% url 'repasses:lotes' %}">Limpar filtro</a>{% endif %}
+</form>
 
 <section class="cards-indicadores">
     <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Lotes</span></div>

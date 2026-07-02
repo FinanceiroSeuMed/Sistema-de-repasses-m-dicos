@@ -37,7 +37,7 @@
             <section class="bloco-medico">
                 <div class="bloco-cabecalho"><h2>{{ rotulo }} ({{ lista|length }})</h2></div>
                 <table class="tabela">
-                    <thead><tr><th>Médico</th><th>Papéis</th><th>Razão Social</th><th>CNPJ</th><th>Chave PIX</th><th>Regra / observação</th><th class="so-edicao">Editar</th></tr></thead>
+                    <thead><tr><th>Médico</th><th>Papéis</th><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Chave PIX</th><th>Regra / observação</th><th class="so-edicao">Editar</th></tr></thead>
                     <tbody>
                         {% for m in lista %}
                         <tr{% if not m.ativo %} class="linha-inativa"{% endif %}>
@@ -48,6 +48,7 @@
                                 {% if m.eh_anestesista %}<span class="badge badge-cirurgia">Anestesista</span>{% endif %}
                             </td>
                             <td>{{ m.razao_social|default:"—" }}</td>
+                            <td>{{ m.nome_fantasia|default:"—" }}</td>
                             <td>{{ m.cnpj|default:"—" }}</td>
                             <td>{{ m.chave_pix|default:"—" }}</td>
                             <td>{{ m.regra_obs|default:"—" }}</td>
