@@ -114,7 +114,7 @@ def _caminho_upload(token: str):
 
 # Campos da revisão que ficam salvos (o resto — token, csrf, memorizar — não).
 _PREFIXOS_RASCUNHO = ('hon_', 'classe_', 'cat_modo_', 'cat_fellow_',
-                      'cat_chefe_', 'cat_fellowval_', 'equipe_destino_', 'oci_integracao_',
+                      'cat_chefe_', 'equipe_destino_', 'oci_integracao_',
                       'anest_nome_', 'anest_horas_', 'anest_cnpj_', 'preceptoria_', 'memo_medicos_')
 
 
@@ -153,7 +153,6 @@ def _anotar_selecoes(resultado, dados):
             p.sel_cat_modo = dados.get(f'cat_modo_{p.idx}', '')
             p.sel_cat_fellow = dados.get(f'cat_fellow_{p.idx}', '')
             p.sel_cat_chefe = dados.get(f'cat_chefe_{p.idx}', '')
-            p.sel_cat_fellowval = dados.get(f'cat_fellowval_{p.idx}', '')
 
 
 def _preparar_revisao(token):
@@ -556,8 +555,16 @@ def _indexar_sinteticas(resultado):
     for bloco in resultado.blocos:
         for p in bloco.procedimentos:
             if p.sintetica:
-                p.idx = nxt
-                nxt += 1
+                mae = getattr(p, 'idx_mae', None)
+                if mae is not None:
+                    # ESTÁVEL: deriva da linha-mãe (ex.: participação do assistente ->
+                    # 'f<idx da catarata>'). O sequencial mudava quando outra catarata
+                    # virava "sem fellow", e o honorário editado do assistente migrava
+                    # de linha. (Auditoria 2026-07-02.)
+                    p.idx = f'f{mae}'
+                else:
+                    p.idx = nxt
+                    nxt += 1
 
 
 def _num(texto):
@@ -647,6 +654,7 @@ def _resolver_cirurgias(resultado, post):
                 linha.status_calculo = 'calculado'
                 linha.sintetica = True
                 linha.editavel = True               # tem campo de honorário próprio
+                linha.idx_mae = p.idx               # idx ESTÁVEL: deriva da catarata-mãe
                 linha.sufixo_export = ' - Assistente 40%'
                 linha.motivo_calculo = f'Assistente 40% da catarata de {bloco.profissional}.'
                 extras[(fellow, p.data, p.clinica)].append(linha)
@@ -880,14 +888,17 @@ def importar(request):
         if form.is_valid():
             arquivo = form.cleaned_data['arquivo']
             token = _salvar_upload(arquivo)
-            # Novo repasse importado -> zera a memória de edições do anterior.
-            RepasseRascunho.objects.all().delete()
-            RepasseRascunho.objects.create(token=token, arquivo_nome=(arquivo.name or ''), dados={})
             try:
                 resultado, aviso, dados = _preparar_revisao(token)
             except medplus.ErroLeituraMedPlus as exc:
+                # Arquivo inválido NÃO destrói a edição em andamento do repasse anterior
+                # (o rascunho antigo só é zerado após a leitura dar certo). (Auditoria
+                # 2026-07-02.)
                 erro = str(exc)
             else:
+                # Novo repasse importado com sucesso -> zera a memória de edições do anterior.
+                RepasseRascunho.objects.all().delete()
+                RepasseRascunho.objects.create(token=token, arquivo_nome=(arquivo.name or ''), dados={})
                 return render(request, 'repasses/revisao.html',
                               _ctx_revisao(resultado, token, aviso, edicoes=dados))
     else:
@@ -902,7 +913,8 @@ def salvar(request):
         raise Http404()
     token = request.POST.get('token', '')
     if _caminho_upload(token) is None:
-        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+        messages.error(request, 'Arquivo da importação não encontrado — refaça o upload.')
+        return redirect('repasses:importar')
     _salvar_rascunho(token, request.POST)
     resultado, aviso, dados = _preparar_revisao(token)
     # Prévia dos arquivos (por médico + OMIE) + possíveis erros da OMIE, para a pessoa
@@ -928,7 +940,8 @@ def cadastrar_medicos(request):
         raise Http404()
     token = request.POST.get('token', '')
     if _caminho_upload(token) is None:
-        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+        messages.error(request, 'Arquivo da importação não encontrado — refaça o upload.')
+        return redirect('repasses:importar')
     validos = dict(Medico.CATEGORIA_CHOICES)
     criados, sem_classe = 0, 0
     for i in range(int(request.POST.get('novo_count') or 0)):
@@ -969,7 +982,8 @@ def revisar(request):
         raise Http404()
     token = request.POST.get('token', '')
     if _caminho_upload(token) is None:
-        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+        messages.error(request, 'Arquivo da importação não encontrado — refaça o upload.')
+        return redirect('repasses:importar')
     resultado, aviso, dados = _preparar_revisao(token)
     return render(request, 'repasses/revisao.html',
                   _ctx_revisao(resultado, token, aviso, edicoes=dados))
@@ -1011,7 +1025,8 @@ def visualizar(request):
         raise Http404()
     token = request.POST.get('token', '')
     if _caminho_upload(token) is None:
-        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+        messages.error(request, 'Arquivo da importação não encontrado — refaça o upload.')
+        return redirect('repasses:importar')
     _salvar_rascunho(token, request.POST)
     resultado, aviso, dados = _preparar_revisao(token)
     return render(request, 'repasses/visualizar.html', {
@@ -1041,7 +1056,9 @@ def _ctx_revisao(resultado, token, aviso, downloads=None, pasta_saida='', penden
         'aviso_regras': aviso,
         'pendencias': pendencias if pendencias is not None else _pendencias_revisao(resultado),
         'info': info or [],
-        'avisos': avisos or [],
+        # avisos do chamador (duplicidade) + avisos do PARSER (linhas com dados
+        # ignoradas por data ilegível) — nada some em silêncio. (Auditoria 2026-07-02.)
+        'avisos': (avisos or []) + list(getattr(resultado, 'avisos', [])),
         'edicoes': edicoes or {},
         'downloads': downloads or [],
         'previa': previa or [],
@@ -1078,7 +1095,8 @@ def exportar(request):
     token = request.POST.get('token', '')
     caminho = _caminho_upload(token)
     if caminho is None:
-        raise Http404('Arquivo da importação não encontrado — refaça o upload.')
+        messages.error(request, 'Arquivo da importação não encontrado — refaça o upload.')
+        return redirect('repasses:importar')
 
     _salvar_rascunho(token, request.POST)               # persiste as edições
     # _preparar_revisao já resolve anestesistas, catarata E preceptoria
@@ -1120,7 +1138,11 @@ def exportar(request):
     if remover_dup:
         n_removidos = _remover_duplicados(token, resultado)
         if not (any(repasse.pagaveis(b) for b in resultado.blocos) or resultado.anestesistas):
-            ctx = _ctx_revisao(resultado, token, aviso, edicoes=dados)
+            # Re-monta o resultado ORIGINAL para o formulário: o atual já foi FINALIZADO
+            # e mutado (OCI movido, equipe removida, duplicados fora) — renderizá-lo
+            # corromperia os índices posicionais dos campos. (Auditoria 2026-07-02.)
+            resultado_form, aviso_form, dados_form = _preparar_revisao(token)
+            ctx = _ctx_revisao(resultado_form, token, aviso_form, edicoes=dados_form)
             ctx['info'] = [f'Todos os {n_removidos} lançamento(s) já tinham sido exportados antes '
                            '— nada novo para exportar neste arquivo (as correções marcadas '
                            'foram memorizadas mesmo assim).']
@@ -1173,29 +1195,39 @@ def exportar(request):
     todos_arquivos = [a for _, _, arqs in por_dia for a in arqs]
     pasta_saida, downloads = _salvar_saidas(todos_arquivos)
 
+    # Persistência ATÔMICA: lotes-dia + arquivos + repasses + migração/limpeza do legado
+    # entram juntos ou nada — sem lote meio-gravado se algo falhar no meio.
+    # (Auditoria 2026-07-02.)
+    from django.db import transaction
     lotes_dia, fps_todos = [], []
-    for dia, res_dia, arqs in por_dia:
-        dls = [{'grupo': g, 'arquivo': n} for (g, n, _c) in arqs]
-        lote_dia, fps = _registrar_lote(request, token, f'{token}~{dia.isoformat()}',
-                                        res_dia, dados, pasta_saida, dls)
-        _guardar_arquivos_no_banco(lote_dia, arqs)   # re-download não depende da pasta saídas/
-        _guardar_upload_no_banco(lote_dia)           # re-export sobrevive à limpeza de uploads/
-        fps_todos += fps
-        lotes_dia.append(lote_dia)
+    with transaction.atomic():
+        for dia, res_dia, arqs in por_dia:
+            dls = [{'grupo': g, 'arquivo': n} for (g, n, _c) in arqs]
+            lote_dia, fps = _registrar_lote(request, token, f'{token}~{dia.isoformat()}',
+                                            res_dia, dados, pasta_saida, dls)
+            _guardar_arquivos_no_banco(lote_dia, arqs)   # re-download não depende da pasta saídas/
+            _guardar_upload_no_banco(lote_dia)           # re-export sobrevive à limpeza de uploads/
+            fps_todos += fps
+            lotes_dia.append(lote_dia)
 
-    # Migra os status do lote legado para os lotes-dia e limpa o que sobrou: o legado
-    # e lotes-dia de dias que não existem mais nesta re-exportação.
-    if status_antigos:
-        for l in lotes_dia:
-            for r in l.repasses.filter(status=Repasse.STATUS_GERADO):
-                st = status_antigos.get((r.tipo, r.medico, r.data, r.clinica))
-                if st:
-                    r.status = st
-                    r.save(update_fields=['status'])
-    (Lote.objects.filter(token__startswith=token)
-     .exclude(token__in={l.token for l in lotes_dia}).delete())
+        # Migra os status do lote legado para os lotes-dia e limpa o que sobrou: o legado
+        # e lotes-dia de dias que não existem mais nesta re-exportação.
+        if status_antigos:
+            for l in lotes_dia:
+                for r in l.repasses.filter(status=Repasse.STATUS_GERADO):
+                    st = status_antigos.get((r.tipo, r.medico, r.data, r.clinica))
+                    if st:
+                        r.status = st
+                        r.save(update_fields=['status'])
+        (Lote.objects.filter(token__startswith=token)
+         .exclude(token__in={l.token for l in lotes_dia}).delete())
 
     avisos_dup = _avisos_duplicidade(token, fps_todos)
+    # Formulário pós-exportação: re-monta o resultado ORIGINAL da revisão — o atual foi
+    # mutado (OCI movido, equipe/dups removidos) e os índices dos campos deixariam de
+    # casar se a pessoa editasse e exportasse de novo. Antes de apagar o rascunho.
+    # (Auditoria 2026-07-02.)
+    resultado_form, aviso_form, dados_form = _preparar_revisao(token)
     # Exportado -> larga o cache de edições (vivem no lote agora; reabrir pelo histórico).
     # O "Continuar edição" deixa de oferecer este import. (Diretoria 2026-06-24.)
     RepasseRascunho.objects.filter(token=token).delete()
@@ -1204,8 +1236,8 @@ def exportar(request):
         rot = ', '.join(l.periodo_inicio.strftime('%d/%m') for l in lotes_dia if l.periodo_inicio)
         info.append(f'Exportação registrada em {len(lotes_dia)} lotes — um por dia ({rot}). '
                     'Cada dia pode ser excluído ou reaberto separadamente no histórico.')
-    ctx = _ctx_revisao(resultado, token, aviso, downloads, pasta_saida, pendencias,
-                       info=info, edicoes=dados, avisos=avisos_dup,
+    ctx = _ctx_revisao(resultado_form, token, aviso_form, downloads, pasta_saida, pendencias,
+                       info=info, edicoes=dados_form, avisos=avisos_dup,
                        lote_id=lotes_dia[0].id if lotes_dia else None)
     return render(request, 'repasses/revisao.html', ctx)
 
@@ -1646,13 +1678,20 @@ def _sync_repasses(lote, resultado):
             clinica=b.clinica or '',
             defaults={'valor': valor, 'razao_social': b.razao_social or ''})
         atuais.add(('medico', b.profissional, b.data, b.clinica or ''))
+    # Agrega por (anestesista, dia, clínica) ANTES de gravar: a anestesista que atende
+    # DOIS cirurgiões no mesmo dia/clínica tem os valores SOMADOS — o update_or_create
+    # por chave sobrescrevia o primeiro. (Auditoria 2026-07-02.)
+    anest_agg = {}
     for a in resultado.anestesistas:
+        chave = (a['anestesista'], a.get('data'), a.get('clinica', '') or '')
+        agg = anest_agg.setdefault(chave, {'valor': 0.0, 'razao_social': ''})
+        agg['valor'] += float(a.get('valor') or 0)
+        agg['razao_social'] = agg['razao_social'] or (a.get('razao_social', '') or '')
+    for (nome, data, clinica), agg in anest_agg.items():
         Repasse.objects.update_or_create(
-            lote=lote, tipo='anestesista', medico=a['anestesista'], data=a.get('data'),
-            clinica=a.get('clinica', '') or '',
-            defaults={'valor': round(float(a.get('valor') or 0), 2),
-                      'razao_social': a.get('razao_social', '') or ''})
-        atuais.add(('anestesista', a['anestesista'], a.get('data'), a.get('clinica', '') or ''))
+            lote=lote, tipo='anestesista', medico=nome, data=data, clinica=clinica,
+            defaults={'valor': round(agg['valor'], 2), 'razao_social': agg['razao_social']})
+        atuais.add(('anestesista', nome, data, clinica))
     for r in lote.repasses.all():
         if (r.tipo, r.medico, r.data, r.clinica) not in atuais:
             r.delete()
@@ -1792,9 +1831,13 @@ def lotes_lista(request):
                   | {p.year for p in Lote.objects.exclude(periodo_inicio__isnull=True)
                      .values_list('periodo_inicio', flat=True)}, reverse=True)
 
-    qs = Lote.objects.annotate(
-        n_total=Count('repasses'),
-        n_pagos=Count('repasses', filter=Q(repasses__status=Repasse.STATUS_PAGO)))
+    # defer: NÃO arrasta o .xls de origem (upload_conteudo) nem os JSONs pesados de
+    # cada lote só para listar — o render usa apenas as colunas exibidas + linhas_pagar
+    # (filiais_resumo). (Auditoria 2026-07-02.)
+    qs = (Lote.objects
+          .defer('upload_conteudo', 'fingerprints', 'edicoes', 'auditoria')
+          .annotate(n_total=Count('repasses'),
+                    n_pagos=Count('repasses', filter=Q(repasses__status=Repasse.STATUS_PAGO))))
     if ano.isdigit():
         qs = qs.filter(periodo_inicio__year=int(ano))
     if mes.isdigit():
@@ -1980,13 +2023,31 @@ def relatorio_mensal(request):
     """Compila os repasses (a pagar) de um MÊS num único xlsx, ordenado por Dr., no
     formato "Repasses em Aberto" (anexo da diretoria). Inclui a preceptoria MENSAL
     (uma linha por preceptor no último dia do mês) e um a pagar OMIE só dela."""
+    from datetime import date as _date
     from .services import relatorio
-    todas = []
-    for l in Lote.objects.only('linhas_pagar'):
-        todas.extend(l.linhas_pagar or [])
-    meses = sorted({(ln.get('data') or '')[:7] for ln in todas if ln.get('data')}, reverse=True)
+    # Meses disponíveis: derivados das colunas leves de período (sem desserializar o
+    # linhas_pagar de TODOS os lotes a cada acesso). (Auditoria 2026-07-02.)
+    meses_set = set()
+    for ini, fim in (Lote.objects.exclude(periodo_inicio__isnull=True)
+                     .values_list('periodo_inicio', 'periodo_fim')):
+        fim = fim or ini
+        m = _date(ini.year, ini.month, 1)
+        while m <= fim:
+            meses_set.add(f'{m.year:04d}-{m.month:02d}')
+            m = _date(m.year + (m.month == 12), (m.month % 12) + 1, 1)
+    meses = sorted(meses_set, reverse=True)
     mes = request.GET.get('mes') or (meses[0] if meses else '')
-    linhas_mes = [ln for ln in todas if (ln.get('data') or '').startswith(mes)] if mes else []
+    linhas_mes = []
+    if mes:
+        prim, ult = _date(int(mes[:4]), int(mes[5:7]), 1), _ultimo_dia_mes(mes)
+        # Só os lotes cujo período toca o mês (as linhas têm data dentro do período);
+        # lotes sem período entram por segurança.
+        alvo = (Lote.objects.filter(Q(periodo_inicio__lte=ult, periodo_fim__gte=prim)
+                                    | Q(periodo_inicio__isnull=True))
+                .only('linhas_pagar'))
+        for l in alvo:
+            linhas_mes.extend(ln for ln in (l.linhas_pagar or [])
+                              if (ln.get('data') or '').startswith(mes))
     # Fechamento do mês: preceptoria MENSAL (1 linha por preceptor) + AJUSTES por médico
     # (desconto/acréscimo de meses anteriores) — todos no último dia do mês.
     prec = _linhas_preceptoria_relatorio(mes) if mes else []
@@ -2082,13 +2143,12 @@ def lote_status(request, pk):
     if request.method != 'POST':
         raise Http404()
     lote = get_object_or_404(Lote, pk=pk)
-    if request.method == 'POST':
-        validos = dict(Repasse.STATUS_CHOICES)
-        for r in lote.repasses.all():
-            novo = request.POST.get(f'status_{r.id}')
-            if novo in validos and novo != r.status:
-                r.status = novo
-                r.save()
+    validos = dict(Repasse.STATUS_CHOICES)
+    for r in lote.repasses.all():
+        novo = request.POST.get(f'status_{r.id}')
+        if novo in validos and novo != r.status:
+            r.status = novo
+            r.save()
     return redirect('repasses:lote_detalhe', pk=lote.id)
 
 

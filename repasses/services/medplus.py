@@ -240,6 +240,10 @@ def _para_numero(valor):
         texto = texto.replace('.', '').replace(',', '.')
     elif ',' in texto:
         texto = texto.replace(',', '.')
+    elif re.fullmatch(r'-?\d{1,3}(\.\d{3})+', texto):
+        # "1.500" é milhar pt-BR (1500), não 1.5 — só quando TODOS os grupos têm
+        # 3 dígitos; "1020.6" segue como decimal. (Auditoria 2026-07-02.)
+        texto = texto.replace('.', '')
     try:
         return float(texto)
     except ValueError:
@@ -391,6 +395,7 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
 
     colmap = None
     bloco_atual = None
+    descartadas_com_dado = 0   # linhas com cara de dado ignoradas (data ilegível)
 
     for i in range(len(df)):
         linha = df.iloc[i]
@@ -412,7 +417,7 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
             continue
 
         # linha de rodapé/total -> ignora
-        if any(chave in junto for chave in ('gerado por', 'total de registros', 'pagina', 'página')):
+        if any(chave in junto for chave in ('gerado por', 'total de registros', 'pagina')):
             continue
 
         # candidata a linha de dados
@@ -422,10 +427,16 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
         col_proc = colmap.get('procedimento')
         data_obj, data_txt = _para_data(linha.iloc[col_data]) if col_data is not None else (None, '')
         procedimento = _texto(linha.iloc[col_proc]) if col_proc is not None else ''
-        if not procedimento or data_obj is None:
-            continue  # sem data válida + procedimento não é linha de dado
+        if not procedimento:
+            continue  # sem procedimento não é linha de dado
         if _norm(procedimento).startswith('status'):
             continue  # linha de status do paciente (metadado do MedPlus), não é procedimento
+        if data_obj is None:
+            # Linha com CARA de dado (procedimento preenchido, dentro de um bloco) mas
+            # data ilegível: seria descartada em SILÊNCIO — em sistema financeiro isso
+            # muda o repasse sem rastro. Conta e avisa na revisão. (Auditoria 2026-07-02.)
+            descartadas_com_dado += 1
+            continue
 
         def _v(campo):
             idx = colmap.get(campo)
@@ -446,6 +457,13 @@ def ler_relatorio(arquivo, nome_arquivo: str = '') -> ResultadoImportacao:
         )
         proc.classe = classificar(procedimento, proc.convenio)
         bloco_atual.procedimentos.append(proc)
+
+    if descartadas_com_dado:
+        plural = 'linha' if descartadas_com_dado == 1 else 'linhas'
+        resultado.avisos.append(
+            f'{descartadas_com_dado} {plural} do arquivo com procedimento preenchido '
+            f'foram IGNORADAS por data ilegível — confira no relatório da MedPlus se '
+            f'algum atendimento ficou de fora.')
 
     if not resultado.blocos or resultado.total_registros == 0:
         raise ErroLeituraMedPlus(

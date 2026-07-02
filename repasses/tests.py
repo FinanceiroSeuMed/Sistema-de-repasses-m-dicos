@@ -902,6 +902,78 @@ class DuplicidadeTests(TestCase):
         self.assertEqual(views._atendimentos_duplicados('novo-token', rel2027), [])
 
 
+class AuditoriaFixesTests(SimpleTestCase):
+    """Regressões das correções da auditoria 2026-07-02 (fórmulas/parser/convênios)."""
+
+    def test_para_numero_milhar_ptbr(self):
+        self.assertEqual(medplus._para_numero('1.500'), 1500.0)      # milhar pt-BR
+        self.assertEqual(medplus._para_numero('12.345.678'), 12345678.0)
+        self.assertEqual(medplus._para_numero('1020.6'), 1020.6)     # decimal segue decimal
+        self.assertEqual(medplus._para_numero('1.020,60'), 1020.60)  # pt-BR completo
+        self.assertEqual(medplus._para_numero('25'), 25.0)
+
+    def test_mapear_convenio_oci_por_token(self):
+        self.assertEqual(regras.mapear_convenio('OCI'), 'oci')
+        self.assertEqual(regras.mapear_convenio('OCI - SUS'), 'oci')
+        self.assertNotEqual(regras.mapear_convenio('Associação Beneficente'), 'oci')
+        self.assertNotEqual(regras.mapear_convenio('Sociedade Médica'), 'oci')
+
+    def test_fechar_total_bloco_sem_residuo_de_centavos(self):
+        # duas classes cujo arredondamento separado divergiria do total do bloco
+        por_classe = {'A': 10.004, 'B': 10.004}          # total 20.008 -> 20.01
+        omie._fechar_total_bloco(por_classe)
+        self.assertEqual(round(sum(por_classe.values()), 2), 20.01)  # fecha com o PDF
+        por_classe = {'A': 10.0, 'B': 5.0}               # sem resíduo: intacto
+        omie._fechar_total_bloco(por_classe)
+        self.assertEqual(por_classe, {'A': 10.0, 'B': 5.0})
+
+    def test_seed_override_por_palavra_inteira(self):
+        import re as _re
+        from repasses.management.commands.seed_medicos import _PJ_OVERRIDES
+        def casa(frag, chave):
+            return bool(_re.search(rf'\b{_re.escape(frag)}\b', chave))
+        self.assertTrue(casa('licia', 'dra licia inazawa'))
+        self.assertFalse(casa('licia', 'dra alicia braga'))          # substring não vale
+        self.assertTrue(casa('ana paula', 'dra ana paula guermandi'))
+        self.assertTrue('licia' in _PJ_OVERRIDES)                    # chaves seguem lá
+
+    def test_laudos_aparece_no_quadro_do_relatorio(self):
+        import io as _io
+        from openpyxl import load_workbook
+        from repasses.services import relatorio
+        linhas = [{'medico': 'Dr. A', 'clinica': '', 'departamento': '', 'classe': 'Laudos',
+                   'resumo': 'Laudos', 'categoria': 'Laudos', 'valor': 300.0,
+                   'vencimento': '2026-07-10', 'data': '2026-06-15'}]
+        wb = load_workbook(_io.BytesIO(relatorio.gerar_relatorio_mensal(linhas, 'T')))
+        textos = {c for row in wb.active.iter_rows(values_only=True) for c in row
+                  if isinstance(c, str)}
+        self.assertIn('Laudos', textos)                              # linha visível no quadro
+
+
+class SyncAnestesistaTests(TestCase):
+    """Anestesista com DOIS cirurgiões no mesmo dia/clínica: valores SOMADOS no
+    acompanhamento (não sobrescritos). (Auditoria 2026-07-02.)"""
+
+    def test_soma_no_mesmo_dia(self):
+        import datetime
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.models import Lote, Repasse
+        lote = Lote.objects.create(token='t-anest2x')
+        dia = datetime.date(2026, 6, 20)
+        rel = SimpleNamespace(blocos=[], anestesistas=[
+            {'anestesista': 'Dra. Isabela Miwa Maeda', 'data': dia, 'clinica': 'Matriz',
+             'valor': 1200.0, 'razao_social': 'IMM'},
+            {'anestesista': 'Dra. Isabela Miwa Maeda', 'data': dia, 'clinica': 'Matriz',
+             'valor': 200.0, 'razao_social': ''},
+        ])
+        views._sync_repasses(lote, rel)
+        reps = list(Repasse.objects.filter(lote=lote, tipo='anestesista'))
+        self.assertEqual(len(reps), 1)
+        self.assertEqual(float(reps[0].valor), 1400.0)               # 1200 + 200
+        self.assertEqual(reps[0].razao_social, 'IMM')
+
+
 class SeedNomeTests(SimpleTestCase):
     def test_corrige_redientes(self):
         from repasses.management.commands.seed_medicos import _corrigir_nome

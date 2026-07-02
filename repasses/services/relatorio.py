@@ -14,16 +14,24 @@ from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-_ORDEM_RESUMO = ['Consultas e exames', 'Cirurgias e procedimentos', 'Preceptoria',
-                 'Anestesia', 'Ajuste']
+_ORDEM_RESUMO = ['Consultas e exames', 'Cirurgias e procedimentos', 'Laudos',
+                 'Preceptoria', 'Anestesia', 'Ajuste']
 # Rótulo exibido nos quadros de soma (capitalização pedida pela diretoria).
 _LABEL_RESUMO = {
     'Consultas e exames': 'Consultas e Exames',
     'Cirurgias e procedimentos': 'Cirurgias e Procedimentos',
+    'Laudos': 'Laudos',
     'Preceptoria': 'Preceptoria',
     'Anestesia': 'Anestesia',
     'Ajuste': 'Ajustes (+/−)',
 }
+
+
+def _chaves_resumo(por_classe):
+    """Chaves na ordem padrão + qualquer classe fora dela (nenhum valor que entra no
+    Total pode ficar invisível no quadro — auditoria 2026-07-02)."""
+    extras = sorted(k for k in por_classe if k not in _ORDEM_RESUMO)
+    return _ORDEM_RESUMO + extras
 _MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho',
           'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
@@ -57,7 +65,7 @@ def _quadro_somas(ws, linha0, titulo, por_classe, *, negrito, fill):
     cab = ws.cell(r, 8, titulo); cab.font = negrito; cab.fill = fill
     ws.cell(r, 9, '').fill = fill
     r += 1
-    for k in _ORDEM_RESUMO:
+    for k in _chaves_resumo(por_classe):
         if round(por_classe.get(k, 0), 2) != 0:
             ws.cell(r, 8, _LABEL_RESUMO.get(k, k))
             cel = ws.cell(r, 9, round(por_classe[k], 2)); cel.number_format = _MOEDA
@@ -102,7 +110,7 @@ def gerar_relatorio_mensal(linhas: list[dict], titulo: str = 'Repasses em Aberto
     cab = ws.cell(r, 1, 'RESUMO GERAL'); cab.font = negrito; cab.fill = geral_fill
     ws.cell(r, 2, '').fill = geral_fill
     r += 1
-    for k in _ORDEM_RESUMO:
+    for k in _chaves_resumo(geral):
         if round(geral.get(k, 0), 2) != 0:
             ws.cell(r, 1, _LABEL_RESUMO.get(k, k))
             cel = ws.cell(r, 2, round(geral[k], 2)); cel.number_format = _MOEDA

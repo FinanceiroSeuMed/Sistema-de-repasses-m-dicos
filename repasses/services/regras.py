@@ -435,7 +435,9 @@ def mapear_convenio(convenio: str) -> str | None:
     if not n:
         return None
     # ordem importa: "OCI - SUS" é OCI (não SUS); CISA antes de SUS
-    if 'oci' in n:
+    if 'oci' in n.split():
+        # token inteiro: "OCI SUS" casa; convênio contendo 'associação'/'sociedade'
+        # (que contêm "oci" como substring) não pode virar OCI. (Auditoria 2026-07-02.)
         return 'oci'
     if 'cisa' in n:
         return 'cisa'

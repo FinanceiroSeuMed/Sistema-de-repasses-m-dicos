@@ -113,9 +113,11 @@ class Command(BaseCommand):
             if rm.razao_social:
                 medico.razao_social = rm.razao_social
             # override da diretoria (tem prioridade sobre a planilha): razão + fantasia + CNPJ.
-            # O CNPJ é a chave do Fornecedor no contas a pagar da OMIE.
+            # O CNPJ é a chave do Fornecedor no contas a pagar da OMIE. Casa por PALAVRA
+            # inteira (não substring): 'licia' não pode pegar 'Alicia' nem 'carolina'
+            # pegar 'Ana Carolina de Souza' errada. (Auditoria 2026-07-02.)
             for frag, (razao, fantasia, cnpj) in _PJ_OVERRIDES.items():
-                if frag in chave:
+                if re.search(rf'\b{re.escape(frag)}\b', chave):
                     medico.razao_social = razao
                     medico.nome_fantasia = fantasia
                     medico.cnpj = cnpj

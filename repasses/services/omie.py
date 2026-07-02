@@ -201,6 +201,28 @@ def _escrever(modelo_path, linhas: list[dict], col_departamento: int) -> tuple[b
     return buf.getvalue(), len(linhas)
 
 
+def _moeda_br(valor) -> str:
+    """1234.56 -> '1.234,56' (mensagens em pt-BR)."""
+    return f'{float(valor):,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.')
+
+
+def _fechar_total_bloco(por_classe):
+    """Faz as linhas por CLASSE somarem exatamente o total do BLOCO arredondado — o
+    mesmo arredondamento do PDF/Excel do médico (que arredondam a soma cheia do bloco).
+    Sem isso, arredondar cada classe separadamente podia divergir do repasse do médico
+    em alguns centavos (auditoria 2026-07-02 — os "9 centavos"). O resíduo vai para a
+    classe de maior valor."""
+    if not por_classe:
+        return
+    total_bloco = round(sum(por_classe.values()), 2)
+    residuo = round(total_bloco - sum(round(v, 2) for v in por_classe.values()), 2)
+    for classe in list(por_classe):
+        por_classe[classe] = round(por_classe[classe], 2)
+    if residuo:
+        maior = max(por_classe, key=lambda k: abs(por_classe[k]))
+        por_classe[maior] = round(por_classe[maior] + residuo, 2)
+
+
 def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     """Uma linha por (médico × dia × clínica × classe).
 
@@ -212,6 +234,7 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
     ref = _data_referencia(resultado)
     pendencias = []
     linhas = []
+    sem_dep = set()
     for bloco in resultado.blocos:
         # Fornecedor (chave do a pagar na OMIE) = CNPJ do médico. (Diretoria 2026-06-28.)
         nome_forn = getattr(bloco, 'cnpj', '') or bloco.razao_social or bloco.profissional
@@ -235,19 +258,25 @@ def gerar_contas_pagar(resultado, modelo_path) -> ResultadoSaida:
                 por_classe[p.classe] += p.honorario
             elif p.status_calculo == 'a_definir':
                 pendencias.append(f'{bloco.profissional}: "{p.procedimento[:40]}" a definir — não entrou no a pagar.')
+        _fechar_total_bloco(por_classe)
         for classe, soma in por_classe.items():
             categoria = CATEGORIA_POR_CLASSE.get(classe, '')
             if not categoria:
                 # Sem categoria OMIE (ex.: "A classificar") NÃO entra no arquivo —
                 # a OMIE rejeita linha sem categoria. Vira pendência para a pessoa
                 # reclassificar na revisão antes de exportar.
-                pendencias.append(f'{nome_forn}: R$ {soma:.2f} em "{classe}" — classifique '
+                pendencias.append(f'{nome_forn}: R$ {_moeda_br(soma)} em "{classe}" — classifique '
                                   f'(Cirurgia/Exame/Preceptoria) na revisão; NÃO entrou no a pagar.')
                 continue
-            dep = departamento(bloco.clinica, getattr(bloco, 'subunidade', '')) or bloco.clinica
+            dep = departamento(bloco.clinica, getattr(bloco, 'subunidade', ''))
+            if not dep and bloco.clinica:
+                sem_dep.add(bloco.clinica)
             linhas.append({'nome': nome_forn, 'categoria': categoria, 'valor': soma,
                            'registro': dia, 'vencimento': venc, 'observacao': observacao,
-                           'departamento': dep})
+                           'departamento': dep or bloco.clinica})
+    for clinica in sorted(sem_dep):
+        pendencias.append(f'Clínica "{clinica}" sem departamento OMIE mapeado (01-07) — a linha '
+                          'saiu com o nome cru da clínica; confira o departamento na OMIE.')
 
     # Linhas dos anestesistas (categoria própria) — uma por atendimento/dia
     for a in getattr(resultado, 'anestesistas', []):
@@ -307,6 +336,7 @@ def linhas_relatorio_pagar(resultado) -> list[dict]:
                 continue
             if p.status_calculo == 'calculado' and (p.honorario or 0) > 0:
                 por_classe[p.classe] += p.honorario
+        _fechar_total_bloco(por_classe)   # mesmo total do PDF/Excel (sem os "9 centavos")
         for classe, soma in por_classe.items():
             out.append({'medico': medico, 'clinica': clinica, 'departamento': dep, 'classe': classe,
                         'resumo': RESUMO_CLASSE.get(classe, classe),
