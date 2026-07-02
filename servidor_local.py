@@ -22,15 +22,27 @@ URL = f'http://{HOST}:{PORT}/'
 
 
 def preparar_banco():
-    """Migra e, se o banco estiver vazio, popula o cadastro inicial + admin."""
+    """Migra e popula/repara o cadastro inicial + admin.
+
+    Auto-cura: se o cadastro de médicos se perder (banco esvaziado ou reduzido),
+    repovoa a partir da PLANILHA sem tocar em lotes/regras/correções. seed_medicos
+    é idempotente (cria os que faltam, atualiza os existentes), então é seguro rodar
+    sempre que o cadastro estiver claramente incompleto. Evita o problema de o
+    'banco de dados se perder' e o sistema não conseguir mais restaurar os médicos.
+    """
     call_command('migrate', interactive=False, verbosity=0)
-    from repasses.models import Medico
-    if not Medico.objects.exists():
-        for cmd in ('seed_medicos', 'seed_regras'):
-            try:
-                call_command(cmd, verbosity=0)
-            except Exception as exc:   # seed é "melhor esforço" — o sistema roda sem
-                print(f'  (aviso ao popular {cmd}: {exc})')
+    from repasses.models import Medico, RegraRepasse
+    # cadastro saudável tem ~22 médicos; abaixo disso, considera perdido e restaura.
+    if Medico.objects.count() < 5:
+        try:
+            call_command('seed_medicos', verbosity=0)
+        except Exception as exc:   # seed é "melhor esforço" — o sistema roda sem
+            print(f'  (aviso ao popular seed_medicos: {exc})')
+    if not RegraRepasse.objects.exists():
+        try:
+            call_command('seed_regras', verbosity=0)
+        except Exception as exc:
+            print(f'  (aviso ao popular seed_regras: {exc})')
     from django.contrib.auth import get_user_model
     User = get_user_model()
     if not User.objects.filter(username='admin').exists():
