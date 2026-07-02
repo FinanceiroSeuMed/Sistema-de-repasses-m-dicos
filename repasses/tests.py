@@ -355,6 +355,69 @@ class OmieReceberKeitiTests(SimpleTestCase):
         res = omie.gerar_contas_receber(self._rel(False), settings.OMIE_RECEBER_TEMPLATE)
         self.assertTrue(any('sem valor bruto' in p for p in res.pendencias))
 
+    def test_linhas_do_sistema_nao_avisam(self):
+        # pacote do Dr. Keiti / OCI movido (sem_bruto_sistema) e bloco de participação
+        # de fellow: criados pelo SISTEMA — sem bruto por natureza, não avisa. (2026-07-02.)
+        rel = self._rel(False)
+        rel.blocos[0].procedimentos[0].sem_bruto_sistema = True
+        res = omie.gerar_contas_receber(rel, settings.OMIE_RECEBER_TEMPLATE)
+        self.assertFalse(any('sem valor bruto' in p for p in res.pendencias))
+        rel = self._rel(False)
+        rel.blocos[0].participacao = True
+        res = omie.gerar_contas_receber(rel, settings.OMIE_RECEBER_TEMPLATE)
+        self.assertFalse(any('sem valor bruto' in p for p in res.pendencias))
+
+    def test_sintetica_nao_soma_nem_avisa_no_receber(self):
+        # A linha "Assistente 40%" copia o bruto da cirurgia — somar de novo DUPLICARIA
+        # o a receber. Sintética não soma nem conta como "sem valor bruto".
+        from datetime import date
+        from openpyxl import load_workbook
+        rel = self._rel(False)
+        original = rel.blocos[0].procedimentos[0]
+        original.valor = 5000.0                       # bruto real da catarata
+        part = medplus.Procedimento(
+            data=date(2026, 4, 14), data_texto='14/04/2026', paciente='Fulano',
+            procedimento='Facectomia', convenio='Particular', quantidade=1,
+            valor=5000.0, honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA)
+        part.sintetica = True                          # linha do assistente (40%)
+        rel.blocos[0].procedimentos.append(part)
+        res = omie.gerar_contas_receber(rel, settings.OMIE_RECEBER_TEMPLATE)
+        self.assertFalse(any('sem valor bruto' in p for p in res.pendencias))
+        wb = load_workbook(io.BytesIO(res.conteudo)); ws = wb[wb.sheetnames[0]]
+        self.assertEqual(ws.cell(omie.LINHA_INICIAL, omie.COL_VALOR).value, 5000.0)  # 1x, não 2x
+        self.assertIsNone(ws.cell(omie.LINHA_INICIAL + 1, omie.COL_VALOR).value)
+
+
+class FellowCnpjTests(TestCase):
+    """Bloco de participação do fellow criado pelo sistema herda o CNPJ do cadastro —
+    o a pagar OMIE não avisa 'sem CNPJ' para o assistente (ex.: Dr. Carlos Eduardo)."""
+
+    def test_bloco_do_fellow_ganha_cnpj_do_cadastro(self):
+        from datetime import date
+        from types import SimpleNamespace
+        from repasses import views
+        from repasses.models import Medico
+        Medico.objects.create(nome='Dr. Carlos Eduardo R. Tiezzi', eh_fellow=True,
+                              razao_social='TIEZZE & TIEZZI SERVIÇOS MEDICOS LTDA',
+                              cnpj='65.358.679/0001-30')
+        p = medplus.Procedimento(
+            data=date(2026, 6, 20), data_texto='20/06/2026', paciente='Fulana',
+            procedimento='Facectomia com implante', convenio='Particular', quantidade=1,
+            valor=6000.0, honorario_medplus=None, classe=medplus.CLASSE_CIRURGIA)
+        p.status_calculo = regras.CATARATA
+        p.idx = 0
+        p.clinica = 'Maringá - Matriz'
+        b = medplus.BlocoMedico(profissional='Dr. Rodolpho Takaishi Nanin Matsumoto')
+        b.procedimentos = [p]; b.data = date(2026, 6, 20); b.clinica = 'Maringá - Matriz'
+        rel = SimpleNamespace(blocos=[b], anestesistas=[], log_edicoes=[])
+        views._resolver_cirurgias(rel, {'cat_modo_0': 'avista',
+                                        'cat_fellow_0': 'Dr. Carlos Eduardo R. Tiezzi'})
+        fellow_bloco = next(bl for bl in rel.blocos
+                            if bl.profissional == 'Dr. Carlos Eduardo R. Tiezzi')
+        self.assertEqual(fellow_bloco.cnpj, '65.358.679/0001-30')          # CNPJ herdado
+        res = omie.gerar_contas_pagar(rel, settings.OMIE_PAGAR_TEMPLATE)
+        self.assertFalse(any('sem CNPJ' in p and 'Carlos' in p for p in res.pendencias))
+
 
 class DataCurtaTests(SimpleTestCase):
     """Data abreviada DD/MM/AA para a tabela de revisão (cabe em uma linha)."""

@@ -453,6 +453,10 @@ def _aplicar_oci_residentes(resultado):
     for bloco in resultado.blocos:
         if getattr(bloco, 'oci_residente', False) and getattr(bloco, 'oci_integra', '') == 'sim':
             responsavel_nome = getattr(bloco, 'oci_responsavel', '') or responsavel_nome
+            for ln in bloco.procedimentos:
+                # movida pelo SISTEMA para a agenda do responsável — se vier sem valor
+                # bruto, não é incoerência do arquivo (não avisa). (Diretoria 2026-07-02.)
+                ln.sem_bruto_sistema = True
             mover[(bloco.data, bloco.clinica or '')].extend(bloco.procedimentos)
     resultado.blocos = [b for b in resultado.blocos if not getattr(b, 'oci_residente', False)]
     if not mover:
@@ -514,6 +518,7 @@ def _aplicar_keiti(resultado):
             pacote.honorario = 1000.0
             pacote.status_calculo = 'calculado'
             pacote.motivo_calculo = 'Dr. Keiti: R$ 1.000 por consultas/exames do dia.'
+            pacote.sem_bruto_sistema = True   # criado pelo sistema — sem bruto por natureza
             novas.append(pacote)
         bloco.procedimentos = novas
 
@@ -658,11 +663,16 @@ def _resolver_cirurgias(resultado, post):
                       if regras.normalizar(b.profissional) == regras.normalizar(fellow)
                       and b.data == data and (b.clinica or '') == (clinica or '')), None)
         if bloco is None:
-            m = Medico.objects.filter(nome=fellow).first()
+            m = (Medico.objects.filter(nome=fellow).first()
+                 or Medico.objects.filter(nome__iexact=fellow).first())
             bloco = medplus.BlocoMedico(profissional=fellow,
                                         razao_social=(m.razao_social if m else ''))
             bloco.data = data
             bloco.clinica = clinica
+            # CNPJ do cadastro: sem ele o a pagar OMIE avisava "sem CNPJ" para o
+            # assistente (ex.: Dr. Carlos Eduardo) mesmo com o cadastro correto.
+            bloco.cnpj = m.cnpj if m else ''
+            bloco.medico_cadastro = m.nome if m else fellow
             bloco.participacao = True   # bloco só de participação em catarata (sem caixa de anestesista)
             resultado.blocos.append(bloco)
         bloco.procedimentos.extend(linhas)

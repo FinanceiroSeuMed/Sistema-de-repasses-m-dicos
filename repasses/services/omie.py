@@ -343,14 +343,21 @@ def gerar_contas_receber(resultado, modelo_path) -> ResultadoSaida:
         # Departamento (com PR2/PR3 conforme a agenda) entra na chave — PR2 e PR3 saem
         # em linhas separadas mesmo na mesma clínica/dia/grupo.
         dep = departamento(clinica, getattr(bloco, 'subunidade', '')) or clinica
-        # Repasse criado pelo sistema (agenda "Equipe Dr. Keiti"): não tem valor bruto
-        # por natureza — não conta como pendência de "sem valor". (Diretoria 2026-06-28.)
-        eh_sistema = getattr(bloco, 'equipe_keiti', False)
+        # Repasse criado pelo SISTEMA (Equipe Dr. Keiti, participação de fellow, pacote
+        # do Dr. Keiti, OCI integrado no responsável): não tem valor bruto por natureza —
+        # não conta como pendência de "sem valor". (Diretoria 2026-06-28 / 2026-07-02.)
+        eh_sistema = (getattr(bloco, 'equipe_keiti', False)
+                      or getattr(bloco, 'participacao', False))
         for p in bloco.procedimentos:
             if p.classe == medplus.CLASSE_PRECEPTORIA:
                 continue   # preceptoria é SÓ a pagar — não tem valor bruto nem avisa
+            if getattr(p, 'sintetica', False):
+                # linha derivada (ex.: Assistente 40% da catarata): o bruto da cirurgia
+                # já está na linha ORIGINAL do cirurgião — somar de novo duplicaria o
+                # a receber; e "sem bruto" aqui não é incoerência.
+                continue
             if p.valor is None:
-                if not eh_sistema:
+                if not (eh_sistema or getattr(p, 'sem_bruto_sistema', False)):
                     sem_valor += 1
                 continue
             grupos[(bloco.data, clinica, dep, grupo_receber(p.convenio))] += p.valor

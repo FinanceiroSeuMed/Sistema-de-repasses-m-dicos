@@ -4,20 +4,26 @@
 {% block title %}Administração{% endblock %}
 
 {% block content %}
+<section class="pagina-cabecalho">
+    <h1>Administração</h1>
+    <p class="subtitulo-escuro">
+        Cadastro de <strong>médicos</strong>, <strong>preços/regras</strong> de repasse e
+        <strong>correções memorizadas</strong> — tudo num lugar só. Ative o
+        <strong>Modo de edição</strong> para alterar valores, incluir e excluir.
+    </p>
+</section>
+
 <div class="admin-wrap" id="admin-wrap" data-aba="{{ aba }}">
-    <aside class="admin-nav">
-        <h3>Administração</h3>
+    <div class="abas-admin">
         <button type="button" class="admin-link" data-aba="medicos">Médicos</button>
-        <button type="button" class="admin-link" data-aba="regras">Regras</button>
+        <button type="button" class="admin-link" data-aba="regras">Preços / Regras</button>
         <button type="button" class="admin-link" data-aba="correcoes">Correções</button>
-        <a class="admin-link admin-link-externo" href="/admin/">Avançada (admin)</a>
-    </aside>
+        <a class="admin-link admin-link-externo" href="/admin/">Administração avançada</a>
+        <span class="abas-espaco"></span>
+        <button type="button" id="btn-modo-edicao" class="botao botao-secundario-escuro">Modo de edição</button>
+    </div>
 
     <div class="admin-conteudo">
-        <div class="admin-topo">
-            <h1 class="admin-titulo"></h1>
-            <button type="button" id="btn-modo-edicao" class="botao botao-secundario-escuro">Modo de edição</button>
-        </div>
         <p class="admin-modo-aviso" hidden>Você está no <strong>Modo de edição</strong> — altere os valores,
             inclua/exclua e salve. Clique de novo em "Modo de edição" para voltar à visualização.</p>
 
@@ -152,16 +158,13 @@
 <script>
 (function () {
     var wrap = document.getElementById('admin-wrap');
-    var titulos = { medicos: 'Médicos', regras: 'Preços / Regras', correcoes: 'Correções memorizadas' };
-    var elTitulo = wrap.querySelector('.admin-titulo');
     function mostrar(aba) {
         wrap.querySelectorAll('.admin-aba').forEach(function (s) { s.hidden = (s.dataset.aba !== aba); });
-        wrap.querySelectorAll('.admin-nav .admin-link').forEach(function (b) {
+        wrap.querySelectorAll('.abas-admin .admin-link').forEach(function (b) {
             if (b.dataset.aba) b.classList.toggle('ativo', b.dataset.aba === aba);
         });
-        elTitulo.textContent = titulos[aba] || 'Administração';
     }
-    wrap.querySelectorAll('.admin-nav .admin-link[data-aba]').forEach(function (b) {
+    wrap.querySelectorAll('.abas-admin .admin-link[data-aba]').forEach(function (b) {
         b.addEventListener('click', function () { mostrar(b.dataset.aba); });
     });
     mostrar(wrap.dataset.aba || 'medicos');

@@ -34,17 +34,20 @@ body {
     align-items: center;
     justify-content: space-between;
 }
-/* Administração unificada: side-nav à esquerda + caixa de conteúdo + Modo de edição. */
-.admin-wrap { display: flex; gap: 18px; align-items: flex-start; }
-.admin-nav { flex: 0 0 190px; position: sticky; top: 88px; background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px; padding: 12px; box-shadow: var(--sombra); }
-.admin-nav h3 { margin: 4px 6px 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; color: var(--texto-suave); }
-.admin-link { display: block; width: 100%; text-align: left; background: none; border: none; border-radius: 8px; padding: 9px 12px; margin: 2px 0; font-size: 14px; color: var(--texto); cursor: pointer; text-decoration: none; }
+/* Administração: abas horizontais no topo — mesma linguagem visual do resto do
+   sistema (cabeçalho padrão + cartão branco; pílula azul na aba ativa), sem menu
+   lateral. (Diretoria 2026-07-02.) */
+.admin-wrap { display: block; }
+.abas-admin { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px;
+  padding: 8px 10px; box-shadow: var(--sombra); margin-bottom: 16px; }
+.admin-link { display: inline-block; background: none; border: none; border-radius: 8px;
+  padding: 8px 16px; font-size: 14px; color: var(--texto); cursor: pointer; text-decoration: none; }
 .admin-link:hover { background: #f1f5fb; }
 .admin-link.ativo { background: var(--azul); color: #fff; font-weight: 600; }
-.admin-link-externo { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--cinza-borda); color: var(--texto-suave); font-size: 13px; }
-.admin-conteudo { flex: 1 1 auto; min-width: 0; }
-.admin-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.admin-topo .admin-titulo { margin: 0; }
+.admin-link-externo { color: var(--texto-suave); font-size: 13px; }
+.abas-espaco { flex: 1 1 auto; }
+.admin-conteudo { min-width: 0; }
 .admin-modo-aviso { background: #fff7e6; border: 1px solid #ffe1a8; border-radius: 10px; padding: 8px 12px; font-size: 13px; color: #6b4e00; margin: 0 0 14px; }
 .inp-regra[readonly] { background: #f3f5f8; color: var(--texto-suave); cursor: default; }
 /* Controles que só aparecem no Modo de edição. */
@@ -52,7 +55,7 @@ body {
 .admin-wrap.editando td.so-edicao, .admin-wrap.editando th.so-edicao { display: table-cell !important; }
 .admin-wrap.editando div.so-edicao { display: flex !important; }
 .admin-wrap.editando .botao.so-edicao { display: inline-block !important; }
-@media (max-width: 900px) { .admin-wrap { flex-direction: column; } .admin-nav { position: static; width: 100%; flex-basis: auto; } }
+@media (max-width: 900px) { .abas-admin { padding: 8px; } .abas-espaco { flex-basis: 100%; } }
 
 .marca { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--texto); white-space: nowrap; }
 .marca-logo-img { height: 48px; width: auto; display: block; }
