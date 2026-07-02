@@ -1355,6 +1355,95 @@ class SeedFantasiaTests(TestCase):
         self.assertEqual(arthur.regra_obs, 'Não recebem em Oftalmo')
 
 
+class HistoricoPorDiaTests(TestCase):
+    """Histórico com UM lançamento por dia + relatório dos dias selecionados
+    (diretoria 2026-07-02): lançar 12–20/06 vira uma linha por dia com movimento;
+    dias marcados geram um 'Repasses em Aberto' só daqueles dias."""
+
+    def _linha(self, data, medico, valor):
+        return {'medico': medico, 'clinica': 'Matriz', 'departamento': '01. Matriz',
+                'classe': 'Exames e Consultas', 'resumo': 'Consultas e exames',
+                'categoria': 'Consultas Particulares', 'valor': valor,
+                'vencimento': '2026-07-10', 'data': data}
+
+    def setUp(self):
+        import datetime
+        from repasses.models import Lote, Repasse
+        self.lote = Lote.objects.create(
+            token='h-dias', periodo_inicio=datetime.date(2026, 6, 12),
+            periodo_fim=datetime.date(2026, 6, 20),
+            linhas_pagar=[self._linha('2026-06-12', 'Dr. A', 100.0),
+                          self._linha('2026-06-13', 'Dr. B', 50.0),
+                          self._linha('2026-06-15', 'Dr. A', 75.0)])
+        for dia, medico, valor in ((12, 'Dr. A', 100), (13, 'Dr. B', 50), (15, 'Dr. A', 75)):
+            Repasse.objects.create(lote=self.lote, medico=medico,
+                                   data=datetime.date(2026, 6, dia), valor=valor)
+
+    def test_um_lancamento_por_dia(self):
+        from django.test import Client
+        r = Client().get('/lotes/')
+        dias = {d['iso']: d for d in r.context['dias']}
+        self.assertEqual(set(dias), {'2026-06-12', '2026-06-13', '2026-06-15'})
+        self.assertEqual(float(dias['2026-06-12']['total']), 100.0)
+        self.assertEqual(dias['2026-06-12']['n_medicos'], 1)
+        self.assertEqual(dias['2026-06-12']['lotes'], [self.lote.id])
+
+    def test_dia_confirmado_vira_lancamento_nulo(self):
+        import datetime
+        from django.test import Client
+        from repasses.models import DiaSemRepasse
+        DiaSemRepasse.objects.create(data=datetime.date(2026, 6, 14))
+        r = Client().get('/lotes/')
+        dias = {d['iso']: d for d in r.context['dias']}
+        self.assertIn('2026-06-14', dias)                    # aparece no histórico
+        self.assertEqual(float(dias['2026-06-14']['total']), 0.0)   # com valor nulo
+        self.assertIsNotNone(dias['2026-06-14']['sem_repasse'])
+
+    def test_filtro_de_mes_vale_para_os_dias(self):
+        import datetime
+        from django.test import Client
+        from repasses.models import Repasse
+        Repasse.objects.create(lote=self.lote, medico='Dr. C',
+                               data=datetime.date(2026, 5, 7), valor=10)
+        r = Client().get('/lotes/', {'ano': '2026', 'mes': '6'})
+        self.assertEqual({d['iso'] for d in r.context['dias']},
+                         {'2026-06-12', '2026-06-13', '2026-06-15'})
+
+    def test_relatorio_so_dos_dias_selecionados(self):
+        import io as _io
+        from django.test import Client
+        from openpyxl import load_workbook
+        r = Client().post('/lotes/relatorio-dias/',
+                          {'dias': ['2026-06-12', '2026-06-15']})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('Repasses_Dias_12-06_15-06', r['Content-Disposition'])
+        wb = load_workbook(_io.BytesIO(b''.join(r.streaming_content)))
+        valores, textos = set(), set()
+        for row in wb.active.iter_rows(values_only=True):
+            for c in row:
+                if isinstance(c, (int, float)):
+                    valores.add(round(float(c), 2))
+                elif isinstance(c, str):
+                    textos.add(c)
+        self.assertIn(100.0, valores)      # dia 12
+        self.assertIn(75.0, valores)       # dia 15
+        self.assertNotIn(50.0, valores)    # dia 13 NÃO selecionado
+        self.assertIn('Dr. A', textos)
+        self.assertNotIn('Dr. B', textos)  # só tinha lançamento no dia 13
+
+    def test_relatorio_sem_selecao_redireciona(self):
+        from django.test import Client
+        r = Client().post('/lotes/relatorio-dias/', {})
+        self.assertEqual(r.status_code, 302)
+        r = Client().post('/lotes/relatorio-dias/', {'dias': ['lixo', '']})
+        self.assertEqual(r.status_code, 302)   # datas inválidas descartadas
+
+    def test_relatorio_dia_sem_lancamento_redireciona(self):
+        from django.test import Client
+        r = Client().post('/lotes/relatorio-dias/', {'dias': ['2026-06-14']})
+        self.assertEqual(r.status_code, 302)
+
+
 class HistoricoFiltroTests(TestCase):
     """Filtros de mês e ano no histórico (pelo período do atendimento)."""
 

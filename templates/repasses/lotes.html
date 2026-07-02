@@ -1,15 +1,15 @@
 {% extends 'base.html' %}
 {% load repasses_extras %}
 
-{% block title %}Histórico de lotes{% endblock %}
+{% block title %}Histórico de repasses{% endblock %}
 
 {% block content %}
 <section class="pagina-cabecalho">
-    <h1>Histórico de lotes</h1>
+    <h1>Histórico de repasses</h1>
     <p class="subtitulo-escuro">
-        Cada exportação fica registrada aqui — você pode <strong>reabrir e re-baixar</strong> os
-        arquivos sem subir o relatório de novo, e conferir <strong>o que foi ajustado à mão</strong>.
-        Ao exportar, o sistema também <strong>avisa</strong> se algum atendimento já saiu num lote anterior.
+        Cada <strong>dia</strong> lançado vira um registro aqui. Selecione um ou mais dias e
+        <strong>emita o relatório só daqueles dias</strong> — útil para conferir o contas a pagar
+        na OMIE quando algo muda. Os arquivos exportados de cada lote seguem disponíveis abaixo.
     </p>
 </section>
 
@@ -56,13 +56,56 @@
 </form>
 
 <section class="cards-indicadores">
-    <div class="card-indicador"><span class="numero">{{ total }}</span><span class="rotulo">Lotes</span></div>
-    <div class="card-indicador"><span class="numero">{{ total_pagar|moeda }}</span><span class="rotulo">Total a pagar (todos)</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_dias }}</span><span class="rotulo">Dias com lançamento</span></div>
+    <div class="card-indicador"><span class="numero">{{ total_pagar|moeda }}</span><span class="rotulo">Total a pagar</span></div>
     <div class="card-indicador"><span class="numero">{{ pendentes_total }}</span><span class="rotulo">Repasses pendentes</span></div>
 </section>
 
+{% if dias %}
+<section class="bloco-medico">
+    <h2>Lançamentos por dia</h2>
+    <form method="post" action="{% url 'repasses:relatorio_dias' %}">
+        {% csrf_token %}
+        <table class="tabela">
+            <thead>
+                <tr>
+                    <th style="width:34px"><input type="checkbox" onclick="document.querySelectorAll('.sel-dia:not(:disabled)').forEach(c => c.checked = this.checked)" title="Selecionar todos"></th>
+                    <th>Dia</th>
+                    <th class="num">Médicos</th>
+                    <th class="num">A pagar</th>
+                    <th>Pagamento</th>
+                    <th>Lote de origem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in dias %}
+                <tr>
+                    <td><input type="checkbox" class="sel-dia" name="dias" value="{{ d.iso }}"{% if d.sem_repasse %} disabled title="Dia sem repasse — não há lançamentos"{% endif %}></td>
+                    <td>{{ d.data|date:"d/m/Y" }} <small>({{ d.data|date:"D" }})</small></td>
+                    <td class="num">{{ d.n_medicos }}</td>
+                    <td class="num">{{ d.total|moeda }}</td>
+                    <td>{% if d.sem_repasse %}<span class="badge badge-zero">sem repasse (confirmado)</span>{% elif d.pendentes %}<span class="badge badge-pendente">{{ d.pendentes }} pendente(s)</span>{% else %}<span class="badge badge-ok">tudo pago</span>{% endif %}</td>
+                    <td>{% for lid in d.lotes %}<a class="botao botao-mini" href="{% url 'repasses:lote_detalhe' lid %}">Lote {{ lid }}</a>{% if not forloop.last %} {% endif %}{% empty %}—{% endfor %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top:10px">
+            <button type="submit" class="botao">Emitir relatório dos dias selecionados</button>
+            <span class="subtitulo-escuro" style="margin-left:8px"><small>Gera o "Repasses em Aberto" apenas dos dias marcados — para conferir o contas a pagar na OMIE.</small></span>
+        </div>
+    </form>
+</section>
+{% else %}
+<div class="alerta alerta-info">
+    Nenhum lançamento ainda. Ao <a href="{% url 'repasses:importar' %}">importar</a> e <strong>exportar</strong>
+    um repasse, cada dia do período aparece aqui como um lançamento.
+</div>
+{% endif %}
+
 {% if lotes %}
 <section class="bloco-medico">
+    <h2>Arquivos exportados (lotes)</h2>
     <table class="tabela">
         <thead>
             <tr>
@@ -90,10 +133,5 @@
         </tbody>
     </table>
 </section>
-{% else %}
-<div class="alerta alerta-info">
-    Nenhum lote ainda. Ao <a href="{% url 'repasses:importar' %}">importar</a> e <strong>exportar</strong> um
-    repasse, ele aparece aqui para reabrir e re-baixar depois.
-</div>
 {% endif %}
 {% endblock %}

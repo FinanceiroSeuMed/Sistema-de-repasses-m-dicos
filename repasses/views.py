@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.contrib import messages
+from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1635,32 +1636,73 @@ _MESES_FILTRO = [(1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'), (4, 'Abril'), 
                  (11, 'Novembro'), (12, 'Dezembro')]
 
 
+def _dias_do_historico():
+    """Um LANÇAMENTO POR DIA (diretoria 2026-07-02): agrupa os repasses de todos os
+    lotes pelo dia do atendimento — lançar 12–20/06 vira uma linha para cada dia com
+    movimento (12, 13, 15, ... — domingo sem atendimento não aparece). Os dias
+    confirmados como "sem repasse" entram com valor nulo (R$ 0,00). Uma query só."""
+    dias = {}
+    for data, lote_id, medico, valor, status in (
+            Repasse.objects.exclude(data__isnull=True)
+            .values_list('data', 'lote_id', 'medico', 'valor', 'status')):
+        d = dias.setdefault(data, {'data': data, 'iso': data.isoformat(), 'total': 0,
+                                   'medicos': set(), 'lotes': set(), 'n': 0, 'pagos': 0,
+                                   'sem_repasse': None})
+        d['total'] += valor
+        d['medicos'].add(medico)
+        d['lotes'].add(lote_id)
+        d['n'] += 1
+        if status == Repasse.STATUS_PAGO:
+            d['pagos'] += 1
+    # dias confirmados "sem repasse" = lançamento nulo no histórico (some se deletado)
+    for c in DiaSemRepasse.objects.all():
+        if c.data not in dias:
+            dias[c.data] = {'data': c.data, 'iso': c.data.isoformat(), 'total': 0,
+                            'medicos': set(), 'lotes': set(), 'n': 0, 'pagos': 0,
+                            'sem_repasse': c}
+    out = []
+    for d in sorted(dias.values(), key=lambda x: x['data'], reverse=True):
+        d['n_medicos'] = len(d['medicos'])
+        d['lotes'] = sorted(d['lotes'])
+        d['pendentes'] = d['n'] - d['pagos']
+        out.append(d)
+    return out
+
+
 def lotes_lista(request):
-    """Histórico de lotes processados, com o que ainda falta pagar. Filtros de mês/ano
-    (por período do atendimento) e confirmação de dias sem repasse."""
-    qs = Lote.objects.all()
-    # Anos disponíveis (do período dos atendimentos) para o filtro.
-    anos = sorted({d.year for d in Lote.objects.exclude(periodo_inicio__isnull=True)
-                   .values_list('periodo_inicio', flat=True)}, reverse=True)
+    """Histórico com UM LANÇAMENTO POR DIA (+ a lista dos arquivos exportados/lotes).
+    Filtros de mês/ano, confirmação de dias sem repasse e seleção de dias para emitir
+    relatório específico (conferência do contas a pagar na OMIE)."""
     ano = request.GET.get('ano') or ''
     mes = request.GET.get('mes') or ''
+
+    dias_todos = _dias_do_historico()
+    dias = [d for d in dias_todos
+            if (not ano.isdigit() or d['data'].year == int(ano))
+            and (not mes.isdigit() or d['data'].month == int(mes))]
+
+    # Anos p/ o filtro: dos dias lançados E dos períodos dos lotes (cobre as 2 tabelas).
+    anos = sorted({d['data'].year for d in dias_todos}
+                  | {p.year for p in Lote.objects.exclude(periodo_inicio__isnull=True)
+                     .values_list('periodo_inicio', flat=True)}, reverse=True)
+
+    qs = Lote.objects.annotate(
+        n_total=Count('repasses'),
+        n_pagos=Count('repasses', filter=Q(repasses__status=Repasse.STATUS_PAGO)))
     if ano.isdigit():
         qs = qs.filter(periodo_inicio__year=int(ano))
     if mes.isdigit():
         qs = qs.filter(periodo_inicio__month=int(mes))
     lotes = list(qs)
-    pendentes_total = 0
     for l in lotes:
-        reps = list(l.repasses.all())
-        l.n_total = len(reps)
-        l.n_pagos = sum(1 for r in reps if r.status == Repasse.STATUS_PAGO)
         l.n_pendentes = l.n_total - l.n_pagos
-        pendentes_total += l.n_pendentes
+
     return render(request, 'repasses/lotes.html', {
+        'dias': dias,
         'lotes': lotes,
-        'total': len(lotes),
-        'total_pagar': sum((l.total_pagar for l in lotes), 0),
-        'pendentes_total': pendentes_total,
+        'total_dias': len(dias),
+        'total_pagar': sum((d['total'] for d in dias), 0),
+        'pendentes_total': sum(d['pendentes'] for d in dias),
         'dias_faltantes': _dias_faltantes_fmt(),
         'dias_confirmados': list(DiaSemRepasse.objects.all()),
         'anos': anos,
@@ -1668,6 +1710,48 @@ def lotes_lista(request):
         'ano_sel': ano,
         'mes_sel': mes,
     })
+
+
+def relatorio_dias(request):
+    """Emite o relatório "Repasses em Aberto" SÓ dos dias selecionados no histórico —
+    para conferir/reajustar o contas a pagar na OMIE quando um dia muda.
+    (Diretoria 2026-07-02.)"""
+    from datetime import date as _date
+    from .services import relatorio
+    if request.method != 'POST':
+        raise Http404()
+    dias = []
+    for s in request.POST.getlist('dias'):
+        try:
+            _date.fromisoformat(s)
+            dias.append(s)
+        except (TypeError, ValueError):
+            continue
+    dias = sorted(set(dias))
+    if not dias:
+        messages.error(request, 'Selecione ao menos um dia para emitir o relatório.')
+        return redirect('repasses:lotes')
+    alvo = set(dias)
+    linhas = []
+    for l in Lote.objects.only('linhas_pagar'):
+        linhas.extend(ln for ln in (l.linhas_pagar or []) if (ln.get('data') or '') in alvo)
+    if not linhas:
+        messages.error(request, 'Os dias selecionados não têm lançamentos no a pagar.')
+        return redirect('repasses:lotes')
+
+    def _fmt(iso):
+        return f'{iso[8:10]}/{iso[5:7]}'
+    if len(dias) == 1:
+        rotulo = f'{_fmt(dias[0])}/{dias[0][:4]}'
+    elif len(dias) <= 4:
+        rotulo = ', '.join(_fmt(d) for d in dias)
+    else:
+        rotulo = f'{_fmt(dias[0])} a {_fmt(dias[-1])} ({len(dias)} dias)'
+    conteudo = relatorio.gerar_relatorio_mensal(linhas, f'Repasses dos dias {rotulo}')
+    nome = 'Repasses_Dias_' + '_'.join(f'{d[8:10]}-{d[5:7]}' for d in dias[:6])
+    if len(dias) > 6:
+        nome += f'_e_mais_{len(dias) - 6}'
+    return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=f'{nome}.xlsx')
 
 
 def _ultimo_dia_mes(mes):

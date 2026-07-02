@@ -18,6 +18,7 @@ urlpatterns = [
     path('lotes/', views.lotes_lista, name='lotes'),
     path('lotes/sem-repasse/', views.confirmar_sem_repasse, name='confirmar_sem_repasse'),
     path('lotes/sem-repasse/<int:pk>/remover/', views.remover_sem_repasse, name='remover_sem_repasse'),
+    path('lotes/relatorio-dias/', views.relatorio_dias, name='relatorio_dias'),
     path('relatorio-mensal/', views.relatorio_mensal, name='relatorio_mensal'),
     path('relatorio-mensal/ajustes/', views.salvar_ajuste_mensal, name='salvar_ajuste_mensal'),
     path('lotes/<int:pk>/', views.lote_detalhe, name='lote_detalhe'),
